@@ -1,6 +1,6 @@
 """
-媒体库扫描模块
-扫描媒体库目录，提取元数据并保存到数据库
+书库扫描模块
+扫描书库目录，提取元数据并保存到数据库
 """
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +22,7 @@ from app.utils.logger import log
 
 
 class Scanner:
-    """媒体库扫描器"""
+    """书库扫描器"""
     
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -39,28 +39,28 @@ class Scanner:
     
     async def scan_library(self, library_id: int) -> dict:
         """
-        扫描指定的媒体库
+        扫描指定的书库
         
         Args:
-            library_id: 媒体库ID
+            library_id: 书库ID
             
         Returns:
             扫描统计信息
         """
-        # 获取媒体库信息
+        # 获取书库信息
         result = await self.db.execute(
             select(Library).where(Library.id == library_id)
         )
         library = result.scalar_one_or_none()
         
         if not library:
-            raise ValueError(f"媒体库不存在: {library_id}")
+            raise ValueError(f"书库不存在: {library_id}")
         
         library_path = Path(library.path)
         if not library_path.exists():
-            raise ValueError(f"媒体库路径不存在: {library.path}")
+            raise ValueError(f"书库路径不存在: {library.path}")
         
-        log.info(f"开始扫描媒体库: {library.name} ({library.path})")
+        log.info(f"开始扫描书库: {library.name} ({library.path})")
         
         stats = {
             "scanned": 0,
@@ -87,7 +87,7 @@ class Scanner:
                 log.error(f"处理文件失败: {file_path}, 错误: {e}")
                 stats["errors"] += 1
         
-        # 更新媒体库最后扫描时间
+        # 更新书库最后扫描时间
         library.last_scan = datetime.utcnow()
         await self.db.commit()
         
@@ -125,7 +125,7 @@ class Scanner:
         
         Args:
             archive_path: 压缩包路径
-            library_id: 媒体库ID
+            library_id: 书库ID
             stats: 统计信息字典
         """
         log.info(f"处理压缩包: {archive_path}")
@@ -155,7 +155,7 @@ class Scanner:
         
         Args:
             file_path: 电子书路径
-            library_id: 媒体库ID
+            library_id: 书库ID
             stats: 统计信息字典
         """
         # 提取元数据
@@ -215,7 +215,7 @@ class Scanner:
         
         Args:
             file_path: 文件路径
-            library_id: 媒体库ID
+            library_id: 书库ID
             metadata: 元数据
         """
         # 获取或创建作者

@@ -22,13 +22,13 @@ router = APIRouter()
 # ===== Pydantic模型 =====
 
 class LibraryCreate(BaseModel):
-    """创建媒体库请求"""
+    """创建书库请求"""
     name: str
     path: str
 
 
 class LibraryResponse(BaseModel):
-    """媒体库响应"""
+    """书库响应"""
     id: int
     name: str
     path: str
@@ -75,14 +75,14 @@ class StatsResponse(BaseModel):
     total_libraries: int
 
 
-# ===== 媒体库管理 =====
+# ===== 书库管理 =====
 
 @router.get("/libraries", response_model=List[LibraryResponse])
 async def list_libraries(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取所有媒体库"""
+    """获取所有书库"""
     result = await db.execute(select(Library))
     libraries = result.scalars().all()
     return libraries
@@ -94,7 +94,7 @@ async def create_library(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin)
 ):
-    """创建新媒体库（需要管理员权限）"""
+    """创建新书库（需要管理员权限）"""
     library = Library(
         name=library_data.name,
         path=library_data.path
@@ -103,7 +103,7 @@ async def create_library(
     await db.commit()
     await db.refresh(library)
     
-    log.info(f"创建媒体库: {library.name}")
+    log.info(f"创建书库: {library.name}")
     return library
 
 
@@ -113,7 +113,7 @@ async def scan_library(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin)
 ):
-    """触发媒体库扫描（需要管理员权限）"""
+    """触发书库扫描（需要管理员权限）"""
     scanner = Scanner(db)
     
     try:
@@ -130,19 +130,19 @@ async def delete_library(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin)
 ):
-    """删除媒体库（需要管理员权限）"""
+    """删除书库（需要管理员权限）"""
     result = await db.execute(
         select(Library).where(Library.id == library_id)
     )
     library = result.scalar_one_or_none()
     
     if not library:
-        raise HTTPException(status_code=404, detail="媒体库不存在")
+        raise HTTPException(status_code=404, detail="书库不存在")
     
     await db.delete(library)
     await db.commit()
     
-    log.info(f"删除媒体库: {library.name}")
+    log.info(f"删除书库: {library.name}")
     return {"status": "success"}
 
 
@@ -305,7 +305,7 @@ async def get_stats(
     author_count = await db.execute(select(func.count(Author.id)))
     total_authors = author_count.scalar()
     
-    # 统计媒体库数量
+    # 统计书库数量
     library_count = await db.execute(select(func.count(Library.id)))
     total_libraries = library_count.scalar()
     

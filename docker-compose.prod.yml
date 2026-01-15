@@ -8,7 +8,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # 媒体库目录（只读挂载，您的小说文件存放位置）
+      # 书库目录（只读挂载，您的小说文件存放位置）
       # 修改 /path/to/your/novels 为你服务器上的实际路径
       - /path/to/your/novels:/data/novels:ro
       # 应用数据（数据库、日志等）

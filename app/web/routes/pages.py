@@ -35,3 +35,12 @@ async def library_page(request: Request):
         "library.html",
         {"request": request, "title": "书库"}
     )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """书库管理页"""
+    return templates.TemplateResponse(
+        "settings.html",
+        {"request": request, "title": "书库管理"}
+    )

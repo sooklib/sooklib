@@ -25,7 +25,7 @@ class User(Base):
 
 
 class Library(Base):
-    """媒体库表"""
+    """书库表"""
     __tablename__ = "libraries"
 
     id = Column(Integer, primary_key=True, index=True)

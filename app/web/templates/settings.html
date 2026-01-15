@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}书库管理 - 小说书库{% endblock %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <div class="bg-white shadow rounded-lg p-6">
+        <h2 class="text-2xl font-bold mb-6">书库管理</h2>
+        
+        <!-- 添加书库表单 -->
+        <div class="mb-8 border-b pb-6">
+            <h3 class="text-xl font-semibold mb-4">添加新书库</h3>
+            <form id="add-library-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">书库名称</label>
+                    <input type="text" id="library-name" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                           placeholder="例如：我的小说">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">书库路径</label>
+                    <input type="text" id="library-path" required
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                           placeholder="/data/novels">
+                    <p class="text-sm text-gray-500 mt-1">Docker 容器内的路径，通常为 /data/novels</p>
+                </div>
+                <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg">
+                    添加书库
+                </button>
+            </form>
+        </div>
+
+        <!-- 书库列表 -->
+        <div>
+            <h3 class="text-xl font-semibold mb-4">现有书库</h3>
+            <div id="libraries-container" class="space-y-4">
+                <!-- 书库列表将通过 JavaScript 动态加载 -->
+            </div>
+            <div id="loading" class="text-center py-8">
+                <p class="text-gray-500">加载中...</p>
+            </div>
+            <div id="empty" class="text-center py-8 hidden">
+                <p class="text-gray-500">暂无书库，请先添加一个书库</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const token = localStorage.getItem('access_token');
+if (!token) {
+    window.location.href = '/login';
+}
+
+// 加载书库列表
+async function loadLibraries() {
+    try {
+        const response = await fetch('/api/libraries', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const libraries = await response.json();
+            displayLibraries(libraries);
+            document.getElementById('loading').classList.add('hidden');
+            
+            if (libraries.length === 0) {
+                document.getElementById('empty').classList.remove('hidden');
+            }
+        } else if (response.status === 401) {
+            window.location.href = '/login';
+        }
+    } catch (error) {
+        console.error('加载书库失败:', error);
+        alert('加载书库失败: ' + error.message);
+    }
+}
+
+// 显示书库列表
+function displayLibraries(libraries) {
+    const container = document.getElementById('libraries-container');
+    container.innerHTML = '';
+    
+    libraries.forEach(library => {
+        const libraryCard = document.createElement('div');
+        libraryCard.className = 'bg-gray-50 border border-gray-200 rounded-lg p-4';
+        libraryCard.innerHTML = `
+            <div class="flex justify-between items-start">
+                <div class="flex-1">
+                    <h4 class="text-lg font-semibold text-gray-800">${library.name}</h4>
+                    <p class="text-sm text-gray-600 mt-1">路径: ${library.path}</p>
+                    <p class="text-sm text-gray-500 mt-1">
+                        最后扫描: ${library.last_scan ? new Date(library.last_scan).toLocaleString('zh-CN') : '未扫描'}
+                    </p>
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="scanLibrary(${library.id})" 
+                            class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm"
+                            id="scan-btn-${library.id}">
+                        开始扫描
+                    </button>
+                    <button onclick="deleteLibrary(${library.id})" 
+                            class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded text-sm">
+                        删除
+                    </button>
+                </div>
+            </div>
+            <div id="scan-status-${library.id}" class="mt-3 hidden">
+                <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                    <p class="text-sm text-blue-800">正在扫描中，请稍候...</p>
+                </div>
+            </div>
+        `;
+        container.appendChild(libraryCard);
+    });
+}
+
+// 添加书库
+document.getElementById('add-library-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const name = document.getElementById('library-name').value;
+    const path = document.getElementById('library-path').value;
+    
+    try {
+        const response = await fetch('/api/libraries', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ name, path })
+        });
+        
+        if (response.ok) {
+            alert('书库添加成功！');
+            document.getElementById('add-library-form').reset();
+            document.getElementById('empty').classList.add('hidden');
+            loadLibraries();
+        } else {
+            const error = await response.json();
+            alert('添加失败: ' + (error.detail || '未知错误'));
+        }
+    } catch (error) {
+        console.error('添加书库失败:', error);
+        alert('添加失败: ' + error.message);
+    }
+});
+
+// 扫描书库
+async function scanLibrary(libraryId) {
+    const btn = document.getElementById(`scan-btn-${libraryId}`);
+    const status = document.getElementById(`scan-status-${libraryId}`);
+    
+    btn.disabled = true;
+    btn.textContent = '扫描中...';
+    status.classList.remove('hidden');
+    
+    try {
+        const response = await fetch(`/api/libraries/${libraryId}/scan`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            status.innerHTML = `
+                <div class="bg-green-50 border border-green-200 rounded p-3">
+                    <p class="text-sm text-green-800 font-semibold">扫描完成！</p>
+                    <p class="text-sm text-green-700 mt-1">
+                        扫描: ${result.stats.scanned} 个文件 | 
+                        添加: ${result.stats.added} 本书 | 
+                        跳过: ${result.stats.skipped} | 
+                        错误: ${result.stats.errors}
+                    </p>
+                </div>
+            `;
+            setTimeout(() => {
+                loadLibraries();
+                // 刷新页面统计
+                window.location.reload();
+            }, 2000);
+        } else {
+            const error = await response.json();
+            status.innerHTML = `
+                <div class="bg-red-50 border border-red-200 rounded p-3">
+                    <p class="text-sm text-red-800">扫描失败: ${error.detail || '未知错误'}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('扫描失败:', error);
+        status.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded p-3">
+                <p class="text-sm text-red-800">扫描失败: ${error.message}</p>
+            </div>
+        `;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '开始扫描';
+    }
+}
+
+// 删除书库
+async function deleteLibrary(libraryId) {
+    if (!confirm('确定要删除这个书库吗？这将删除所有相关的书籍记录（但不会删除原始文件）。')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/libraries/${libraryId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            alert('书库删除成功！');
+            loadLibraries();
+        } else {
+            const error = await response.json();
+            alert('删除失败: ' + (error.detail || '未知错误'));
+        }
+    } catch (error) {
+        console.error('删除书库失败:', error);
+        alert('删除失败: ' + error.message);
+    }
+}
+
+// 页面加载时获取书库列表
+document.addEventListener('DOMContentLoaded', loadLibraries);
+</script>
+{% endblock %}
