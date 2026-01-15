@@ -59,11 +59,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 配置静态文件
-app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
-
-# 挂载Flutter Web UI
-app.mount("/flutter", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
+# 配置静态文件（仅CSS/JS等，不包含flutter）
+app.mount("/static", StaticFiles(directory="app/web/static", html=False), name="static")
 
 # 配置模板
 templates = Jinja2Templates(directory="app/web/templates")
@@ -71,7 +68,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 # 导入路由（延迟导入避免循环依赖）
 from app.web.routes import admin, api, auth, bookmarks, opds, pages, permissions, tags, user
 
-# 注册路由
+# 注册路由（必须在挂载Flutter之前）
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 app.include_router(api.router, prefix="/api", tags=["API"])
 app.include_router(admin.router, prefix="/api", tags=["管理员"])
@@ -80,6 +77,9 @@ app.include_router(permissions.router, prefix="/api", tags=["权限管理"])
 app.include_router(tags.router, prefix="/api", tags=["标签管理"])
 app.include_router(user.router, prefix="/api/user", tags=["用户功能"])
 app.include_router(opds.router, prefix="/opds", tags=["OPDS"])
-app.include_router(pages.router, tags=["页面"])
+app.include_router(pages.router, prefix="/legacy", tags=["旧版页面"])
+
+# 挂载Flutter Web UI到根路径（必须最后挂载）
+app.mount("/", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
 
 log.info("FastAPI应用初始化完成")
