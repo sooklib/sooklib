@@ -28,18 +28,19 @@ RUN git clone https://github.com/flutter/flutter.git -b 3.16.9 --depth 1 $FLUTTE
     flutter precache --web --no-android --no-ios --no-linux --no-windows --no-macos
 
 # 复制Flutter项目
-WORKDIR /build
-COPY flutter_app/pubspec.yaml flutter_app/pubspec.lock* ./flutter_app/
-
-# 预先下载依赖（利用Docker缓存）
 WORKDIR /build/flutter_app
+
+# 先复制依赖文件（利用Docker缓存）
+COPY flutter_app/pubspec.yaml flutter_app/pubspec.lock* ./
 RUN flutter pub get || true
 
 # 复制所有源代码
 COPY flutter_app/ ./
 
-# 构建Flutter Web
-RUN flutter pub get && \
+# 验证文件存在并构建
+RUN ls -la && \
+    ls -la lib/ && \
+    flutter pub get && \
     flutter build web --release --web-renderer canvaskit
 
 # ==================== 阶段2: Python应用 ====================
