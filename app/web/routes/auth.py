@@ -118,6 +118,42 @@ async def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+class LoginRequest(BaseModel):
+    """登录请求模型"""
+    username: str
+    password: str
+
+
+@router.post("/login", response_model=Token)
+async def login_json(
+    login_data: LoginRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    用户登录（JSON格式）
+    用于Flutter Web等现代前端
+    """
+    # 查找用户
+    result = await db.execute(
+        select(User).where(User.username == login_data.username)
+    )
+    user = result.scalar_one_or_none()
+    
+    # 验证用户名和密码
+    if not user or not verify_password(login_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+        )
+    
+    # 创建访问令牌
+    access_token = create_access_token(data={"sub": user.username})
+    
+    log.info(f"用户登录: {user.username}")
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     """
