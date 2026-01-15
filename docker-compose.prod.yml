@@ -3,8 +3,7 @@ version: '3.8'
 services:
   novel-library:
     # 使用 GitHub Container Registry 的镜像
-    # 替换 YOUR_GITHUB_USERNAME 为你的 GitHub 用户名
-    image: ghcr.io/YOUR_GITHUB_USERNAME/novel-library:latest
+    image: ghcr.io/haruka041/novel-library:latest
     container_name: novel-library
     ports:
       - "8080:8080"

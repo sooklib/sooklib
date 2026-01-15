@@ -2,10 +2,6 @@
 
 一个基于 Docker 的电子书管理系统，类似 Emby/Jellyfin 的书库管理方案。支持自动扫描、元数据提取、在线阅读、OPDS 协议和多用户管理。
 
-> 🚀 **新手？** 查看 [**快速部署指南 (QUICK_START.md)**](QUICK_START.md) 一步步完成 GitHub 同步和服务器部署！
->
-> 📖 **详细文档：** [完整部署指南 (DEPLOYMENT_GUIDE.md)](DEPLOYMENT_GUIDE.md)
-
 ## ✨ 特性
 
 - 📚 **多格式支持**：txt、epub、mobi/azw3，以及 zip、rar、7z、iso 等压缩包
@@ -25,7 +21,7 @@
 
 ```bash
 # 1. 下载 docker-compose 配置
-wget https://raw.githubusercontent.com/你的用户名/novel-library/main/docker-compose.prod.yml
+wget https://raw.githubusercontent.com/Haruka041/novel-library/main/docker-compose.prod.yml
 mv docker-compose.prod.yml docker-compose.yml
 
 # 2. 编辑配置（修改路径和密码）
@@ -35,7 +31,7 @@ nano docker-compose.yml
 docker-compose up -d
 ```
 
-> 📖 详细步骤请查看 [QUICK_START.md](QUICK_START.md)
+Docker 镜像地址：`ghcr.io/haruka041/novel-library:latest`
 
 ### 方法二：本地构建（开发者）
 
@@ -43,7 +39,7 @@ docker-compose up -d
 
 1. **克隆项目**
 ```bash
-git clone https://github.com/你的用户名/novel-library.git
+git clone https://github.com/Haruka041/novel-library.git
 cd novel-library
 ```
 
@@ -78,40 +74,7 @@ docker-compose up -d
 
 ⚠️ **首次登录后请立即修改默认密码！**
 
----
-
-## 📦 推送到 GitHub 并自动构建 Docker 镜像
-
-### 使用自动化脚本（最简单）
-
-**Windows 用户：**
-```batch
-双击运行 init-git.bat
-```
-
-**Linux/Mac 用户：**
-```bash
-bash init-git.sh
-```
-
-### 手动推送
-
-1. 在 GitHub 创建仓库：https://github.com/new
-2. 执行以下命令：
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/你的用户名/novel-library.git
-git push -u origin main
-```
-
-3. GitHub Actions 会自动构建 Docker 镜像并发布到 `ghcr.io`
-
-> 📖 详细步骤请查看 [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
-
-##  使用指南
+## 📖 使用指南
 
 ### 添加媒体库
 
