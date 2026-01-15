@@ -180,8 +180,12 @@ async def list_books(
     if not accessible_library_ids:
         return []
     
-    # 构建查询，只包含可访问书库的书籍
-    query = select(Book).options(joinedload(Book.author), joinedload(Book.book_tags))
+    # 构建查询，只包含可访问书库的书籍，并加载主版本
+    query = select(Book).options(
+        joinedload(Book.author),
+        joinedload(Book.book_tags),
+        joinedload(Book.versions)
+    )
     query = query.where(Book.library_id.in_(accessible_library_ids))
     
     if author_id:
@@ -214,12 +218,19 @@ async def list_books(
     # 手动构建响应
     response = []
     for book in paginated_books:
+        # 获取主版本或第一个版本
+        primary_version = None
+        if book.versions:
+            primary_version = next((v for v in book.versions if v.is_primary), None)
+            if not primary_version:
+                primary_version = book.versions[0] if book.versions else None
+        
         response.append({
             "id": book.id,
             "title": book.title,
             "author_name": book.author.name if book.author else None,
-            "file_format": book.file_format,
-            "file_size": book.file_size,
+            "file_format": primary_version.file_format if primary_version else "unknown",
+            "file_size": primary_version.file_size if primary_version else 0,
             "added_at": book.added_at.isoformat(),
         })
     
@@ -234,15 +245,22 @@ async def get_book(
 ):
     """获取用户有权访问的书籍详情"""
     # 加载关联数据
-    await db.refresh(book, ['author'])
+    await db.refresh(book, ['author', 'versions'])
+    
+    # 获取主版本或第一个版本
+    primary_version = None
+    if book.versions:
+        primary_version = next((v for v in book.versions if v.is_primary), None)
+        if not primary_version:
+            primary_version = book.versions[0] if book.versions else None
     
     return {
         "id": book.id,
         "title": book.title,
         "author_name": book.author.name if book.author else None,
-        "file_path": book.file_path,
-        "file_format": book.file_format,
-        "file_size": book.file_size,
+        "file_path": primary_version.file_path if primary_version else "",
+        "file_format": primary_version.file_format if primary_version else "unknown",
+        "file_size": primary_version.file_size if primary_version else 0,
         "description": book.description,
         "publisher": book.publisher,
         "age_rating": book.age_rating,
@@ -377,7 +395,11 @@ async def search_books(
     
     # 构建搜索查询
     from sqlalchemy import or_
-    query = select(Book).options(joinedload(Book.author), joinedload(Book.book_tags))
+    query = select(Book).options(
+        joinedload(Book.author),
+        joinedload(Book.book_tags),
+        joinedload(Book.versions)
+    )
     query = query.where(Book.library_id.in_(accessible_library_ids))
     
     # 关键词搜索（书名或作者名）
@@ -446,12 +468,19 @@ async def search_books(
     # 构建响应
     response_books = []
     for book in paginated_books:
+        # 获取主版本或第一个版本
+        primary_version = None
+        if book.versions:
+            primary_version = next((v for v in book.versions if v.is_primary), None)
+            if not primary_version:
+                primary_version = book.versions[0] if book.versions else None
+        
         response_books.append({
             "id": book.id,
             "title": book.title,
             "author_name": book.author.name if book.author else None,
-            "file_format": book.file_format,
-            "file_size": book.file_size,
+            "file_format": primary_version.file_format if primary_version else "unknown",
+            "file_size": primary_version.file_size if primary_version else 0,
             "added_at": book.added_at.isoformat(),
         })
     
