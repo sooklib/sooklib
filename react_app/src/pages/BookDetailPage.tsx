@@ -13,6 +13,7 @@ import {
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+import { formatDateShort, formatDateTime, formatRelativeTime } from '../utils/dateUtils'
 
 interface TagInfo {
   id: number
@@ -191,27 +192,6 @@ export default function BookDetailPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
-  const formatDate = (dateStr: string): string => {
-    return new Date(dateStr).toLocaleDateString('zh-CN')
-  }
-
-  const formatDateTime = (dateStr: string): string => {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-  }
-
-  const formatRelativeTime = (dateStr: string): string => {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    
-    if (diff < 60000) return '刚刚'
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
-    if (diff < 604800000) return `${Math.floor(diff / 86400000)} 天前`
-    return formatDate(dateStr)
-  }
-
   const handleRead = () => {
     navigate(`/book/${id}/reader`)
   }
@@ -333,7 +313,7 @@ export default function BookDetailPage() {
             />
             <Chip
               icon={<AccessTime sx={{ fontSize: 16 }} />}
-              label={`添加于 ${formatDate(book.added_at)}`}
+              label={`添加于 ${formatDateShort(book.added_at)}`}
               size="small"
               variant="outlined"
             />
@@ -507,7 +487,7 @@ export default function BookDetailPage() {
                   <Typography variant="caption" color="text.secondary">
                     添加日期
                   </Typography>
-                  <Typography variant="body2">{formatDate(book.added_at)}</Typography>
+                  <Typography variant="body2">{formatDateShort(book.added_at)}</Typography>
                 </Grid>
                 {readingProgress?.last_read_at && (
                   <Grid item xs={6} sm={4}>

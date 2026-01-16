@@ -13,6 +13,7 @@ import {
 import { History as HistoryIcon, CheckCircle } from '@mui/icons-material';
 import api from '../services/api';
 import BookCard from '../components/BookCard';
+import { formatDateShort, formatRelativeTime } from '../utils/dateUtils';
 
 interface HistoryItem {
   book_id: number;
@@ -130,8 +131,8 @@ export default function HistoryPage() {
                         sx={{ fontSize: '0.7rem', height: 22 }}
                       />
                     )}
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(item.last_read_at).toLocaleDateString('zh-CN')}
+                    <Typography variant="caption" color="text.secondary" title={formatDateShort(item.last_read_at)}>
+                      {formatRelativeTime(item.last_read_at)}
                     </Typography>
                   </Box>
                 </Box>
