@@ -78,7 +78,12 @@ class MyApp extends StatelessWidget {
         ),
         GoRoute(
           path: '/library',
-          builder: (context, state) => const LibraryScreen(),
+          builder: (context, state) {
+            // 支持通过 query 参数筛选书库
+            final libraryIdStr = state.uri.queryParameters['libraryId'];
+            final libraryId = libraryIdStr != null ? int.tryParse(libraryIdStr) : null;
+            return LibraryScreen(libraryId: libraryId);
+          },
         ),
         GoRoute(
           path: '/books/:id',

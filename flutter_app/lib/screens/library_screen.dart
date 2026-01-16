@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/book_provider.dart';
+import '../providers/dashboard_provider.dart';
 import '../widgets/book_card.dart';
 
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  final int? libraryId;
+  
+  const LibraryScreen({super.key, this.libraryId});
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -20,7 +23,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     
     // 初始加载
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<BookProvider>().loadBooks();
+      final bookProvider = context.read<BookProvider>();
+      
+      // 如果传入了 libraryId，设置筛选条件
+      if (widget.libraryId != null) {
+        bookProvider.setFilter(libraryId: widget.libraryId);
+      } else {
+        bookProvider.loadBooks();
+      }
     });
 
     // 监听滚动，实现无限加载
@@ -48,11 +58,88 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return 8;                        // 大桌面
   }
 
+  void _showFilterDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        return Consumer<DashboardProvider>(
+          builder: (context, dashboardProvider, child) {
+            final libraries = dashboardProvider.libraries;
+            final currentLibraryId = context.read<BookProvider>().libraryId;
+            
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '筛选书库',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // 全部选项
+                  ListTile(
+                    leading: Icon(
+                      Icons.all_inclusive,
+                      color: currentLibraryId == null ? Theme.of(context).primaryColor : null,
+                    ),
+                    title: const Text('全部书库'),
+                    selected: currentLibraryId == null,
+                    onTap: () {
+                      context.read<BookProvider>().clearFilter();
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                  
+                  const Divider(),
+                  
+                  // 书库列表
+                  if (libraries.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else
+                    ...libraries.map((library) => ListTile(
+                      leading: Icon(
+                        Icons.folder,
+                        color: currentLibraryId == library.id 
+                            ? Theme.of(context).primaryColor 
+                            : null,
+                      ),
+                      title: Text(library.name),
+                      subtitle: Text('${library.bookCount ?? 0} 本书'),
+                      selected: currentLibraryId == library.id,
+                      onTap: () {
+                        context.read<BookProvider>().setFilter(libraryId: library.id);
+                        Navigator.pop(ctx);
+                      },
+                    )),
+                  
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('书库'),
+        title: Consumer<BookProvider>(
+          builder: (context, bookProvider, child) {
+            if (bookProvider.libraryId != null) {
+              return const Text('筛选中...');
+            }
+            return const Text('书库');
+          },
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -60,12 +147,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
               context.push('/search');
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: () {
-              // TODO: 实现筛选功能
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('筛选功能开发中...')),
+          Consumer<BookProvider>(
+            builder: (context, bookProvider, child) {
+              final hasFilter = bookProvider.libraryId != null;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.filter_list),
+                    onPressed: () => _showFilterDialog(context),
+                  ),
+                  if (hasFilter)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
               );
             },
           ),

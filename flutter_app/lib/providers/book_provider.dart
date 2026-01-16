@@ -12,6 +12,10 @@ class BookProvider extends ChangeNotifier {
   int _currentPage = 1;
   bool _hasMore = true;
   
+  // 筛选参数
+  int? _libraryId;
+  int? _authorId;
+  
   // 统计数据
   int _totalBooks = 0;
   int _totalAuthors = 0;
@@ -30,6 +34,8 @@ class BookProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get hasMore => _hasMore;
   bool get isInitialized => _initialized;
+  int? get libraryId => _libraryId;
+  int? get authorId => _authorId;
   
   // 统计数据 Getters
   int get totalBooks => _totalBooks;
@@ -81,9 +87,34 @@ class BookProvider extends ChangeNotifier {
     }
   }
 
+  // 设置筛选条件
+  void setFilter({int? libraryId, int? authorId}) {
+    bool changed = false;
+    if (libraryId != _libraryId) {
+      _libraryId = libraryId;
+      changed = true;
+    }
+    if (authorId != _authorId) {
+      _authorId = authorId;
+      changed = true;
+    }
+    if (changed) {
+      loadBooks(refresh: true);
+    }
+  }
+
+  // 清除筛选条件
+  void clearFilter() {
+    if (_libraryId != null || _authorId != null) {
+      _libraryId = null;
+      _authorId = null;
+      loadBooks(refresh: true);
+    }
+  }
+
   // 加载书籍列表（初始加载或刷新）
   Future<void> loadBooks({bool refresh = false}) async {
-    debugPrint('📚 loadBooks called, refresh: $refresh');
+    debugPrint('📚 loadBooks called, refresh: $refresh, libraryId: $_libraryId');
     
     // 确保初始化完成
     await _ensureInitialized();
@@ -103,6 +134,8 @@ class BookProvider extends ChangeNotifier {
       final newBooks = await _bookService!.getBooks(
         page: _currentPage,
         limit: 20,
+        libraryId: _libraryId,
+        authorId: _authorId,
       );
 
       debugPrint('📚 Received ${newBooks.length} books');
@@ -143,6 +176,8 @@ class BookProvider extends ChangeNotifier {
       final newBooks = await _bookService!.getBooks(
         page: _currentPage,
         limit: 20,
+        libraryId: _libraryId,
+        authorId: _authorId,
       );
 
       debugPrint('📚 Received ${newBooks.length} more books');
