@@ -2,8 +2,10 @@
 FastAPI Web应用
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -81,8 +83,61 @@ app.include_router(opds.router, prefix="/opds", tags=["OPDS"])
 app.include_router(pages.router, tags=["页面"])
 app.include_router(reader.router, prefix="/api", tags=["阅读器"])
 
-# 挂载Flutter Web UI到根路径（注意：必须最后挂载，否则会拦截其他路由）
-# html=True 会让 SPA 路由正常工作
-app.mount("/", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
+# Flutter Web 静态资源目录
+FLUTTER_DIR = Path("app/web/static/flutter")
+
+# 挂载 Flutter 静态资源（JS、CSS、assets 等）
+# 不使用 html=True，因为我们要手动处理 SPA 路由
+app.mount("/assets", StaticFiles(directory=FLUTTER_DIR / "assets"), name="flutter_assets")
+app.mount("/canvaskit", StaticFiles(directory=FLUTTER_DIR / "canvaskit"), name="flutter_canvaskit")
+
+
+@app.get("/flutter.js")
+async def flutter_js():
+    """返回 Flutter JS 引导文件"""
+    return FileResponse(FLUTTER_DIR / "flutter.js")
+
+
+@app.get("/flutter_service_worker.js")
+async def flutter_service_worker():
+    """返回 Flutter Service Worker"""
+    return FileResponse(FLUTTER_DIR / "flutter_service_worker.js")
+
+
+@app.get("/main.dart.js")
+async def flutter_main():
+    """返回 Flutter 主应用 JS"""
+    return FileResponse(FLUTTER_DIR / "main.dart.js")
+
+
+@app.get("/manifest.json")
+async def flutter_manifest():
+    """返回 Flutter Web Manifest"""
+    return FileResponse(FLUTTER_DIR / "manifest.json", media_type="application/json")
+
+
+@app.get("/version.json")
+async def flutter_version():
+    """返回 Flutter 版本信息"""
+    return FileResponse(FLUTTER_DIR / "version.json", media_type="application/json")
+
+
+# SPA Catch-all 路由：所有未匹配的路径都返回 index.html
+# 这样 Flutter 的 go_router 就能正确处理客户端路由
+@app.get("/{full_path:path}")
+async def spa_fallback(request: Request, full_path: str):
+    """
+    SPA 路由回退
+    所有非 API、非静态资源的路径都返回 Flutter 的 index.html
+    让 Flutter 的 go_router 在客户端处理路由
+    """
+    # 检查是否请求的是根路径或 Flutter 路由
+    index_file = FLUTTER_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    else:
+        log.error("Flutter index.html not found")
+        return {"error": "Flutter app not found"}
+
 
 log.info("FastAPI应用初始化完成")
