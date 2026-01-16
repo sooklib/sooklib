@@ -278,43 +278,63 @@ class TxtParser:
         """提取开头简介段落"""
         # 识别特征
         intro_keywords = ['简介', '内容介绍', '故事简介', '内容梗概', '作品简介']
+        chapter_markers = ['正文', '第一章', '第1章', '序章', '楔子', 'Chapter 1', 'Chapter 01']
         
-        # 搜索前1500字
-        search_text = content[:1500]
+        # 搜索前2000字
+        search_text = content[:2000]
         lines = search_text.split('\n')
         
         intro_start = -1
         intro_end = -1
         
-        # 查找简介开始位置
+        # 策略1：查找明确的简介标记
         for i, line in enumerate(lines):
             line_stripped = line.strip()
             if any(keyword in line_stripped for keyword in intro_keywords):
                 intro_start = i + 1  # 从下一行开始
                 break
         
+        # 策略2：如果没找到简介标记，查找"正文"、"第一章"等，提取之前的内容
+        if intro_start < 0:
+            for i, line in enumerate(lines):
+                line_stripped = line.strip()
+                # 检查是否是章节标记
+                if any(marker in line_stripped for marker in chapter_markers) or \
+                   (line_stripped.startswith('第') and ('章' in line_stripped or '节' in line_stripped)):
+                    # 找到了章节标记，从文件开头到这里的内容可能是简介
+                    intro_start = 0
+                    intro_end = i
+                    break
+        
         if intro_start < 0:
             return None
         
         # 从简介开始位置往后找到结束
         intro_lines = []
-        for i in range(intro_start, min(intro_start + 20, len(lines))):
+        end_index = intro_end if intro_end > 0 else min(intro_start + 25, len(lines))
+        
+        for i in range(intro_start, end_index):
             line = lines[i].strip()
             
-            # 遇到章节标题或明显的正文标记停止
-            if (line.startswith('第') and ('章' in line or '节' in line)) or \
-               line.startswith('Chapter') or \
-               line.startswith('序章') or \
-               line.startswith('楔子') or \
-               line.startswith('正文'):
-                break
+            # 如果已经设置了intro_end，就不需要再检查了
+            if intro_end < 0:
+                # 遇到章节标题或明显的正文标记停止
+                if any(marker in line for marker in chapter_markers) or \
+                   (line.startswith('第') and ('章' in line or '节' in line)) or \
+                   line.startswith('Chapter'):
+                    break
+            
+            # 跳过常见的文件头信息
+            if i == intro_start and any(skip in line for skip in ['来源:', '来源：', '转载', 'vip', 'VIP', 'QQ群', 'www.', 'http']):
+                continue
             
             if line:  # 非空行
                 intro_lines.append(line)
         
         if intro_lines:
             desc = '\n'.join(intro_lines)
-            if 50 <= len(desc) <= 800:
+            # 放宽长度要求，允许更短的简介
+            if 30 <= len(desc) <= 1000:
                 log.debug(f"通过简介段落提取到简介: {len(desc)}字")
                 return desc
         

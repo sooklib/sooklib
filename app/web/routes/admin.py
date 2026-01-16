@@ -1412,7 +1412,7 @@ async def batch_tag_books(
             tag = result.scalar_one_or_none()
             
             if not tag:
-                tag = Tag(name=tag_name)
+                tag = Tag(name=tag_name, type="custom")
                 db.add(tag)
                 await db.flush()
             
@@ -1570,7 +1570,7 @@ async def auto_tag_books(
                             tag = tag_result.scalar_one_or_none()
                             
                             if not tag:
-                                tag = Tag(name=tag_name)
+                                tag = Tag(name=tag_name, type="custom")
                                 db.add(tag)
                                 await db.flush()
                             
@@ -1692,7 +1692,7 @@ async def auto_tag_single_book(
                 tag = tag_result.scalar_one_or_none()
                 
                 if not tag:
-                    tag = Tag(name=tag_name)
+                    tag = Tag(name=tag_name, type="custom")
                     db.add(tag)
                     await db.flush()
                 
