@@ -6,8 +6,9 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, desc
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, select, desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import (
@@ -73,22 +74,32 @@ class DashboardResponse(BaseModel):
 
 # ============= 辅助函数 =============
 
-def get_user_accessible_libraries(db: Session, user: User) -> List[Library]:
+async def get_user_accessible_libraries(db: AsyncSession, user: User) -> List[Library]:
     """获取用户可访问的书库列表"""
     if user.is_admin:
-        return db.query(Library).all()
+        result = await db.execute(select(Library))
+        return list(result.scalars().all())
     
-    # 公共书库 + 用户有权限的书库
-    public_libraries = db.query(Library).filter(Library.is_public == True).all()
+    # 公共书库
+    result = await db.execute(
+        select(Library).where(Library.is_public == True)
+    )
+    public_libraries = list(result.scalars().all())
     
-    permitted_library_ids = db.query(LibraryPermission.library_id).filter(
-        LibraryPermission.user_id == user.id
-    ).all()
-    permitted_library_ids = [lid[0] for lid in permitted_library_ids]
+    # 用户有权限的书库
+    result = await db.execute(
+        select(LibraryPermission.library_id).where(
+            LibraryPermission.user_id == user.id
+        )
+    )
+    permitted_library_ids = [row[0] for row in result.all()]
     
-    permitted_libraries = db.query(Library).filter(
-        Library.id.in_(permitted_library_ids)
-    ).all() if permitted_library_ids else []
+    permitted_libraries = []
+    if permitted_library_ids:
+        result = await db.execute(
+            select(Library).where(Library.id.in_(permitted_library_ids))
+        )
+        permitted_libraries = list(result.scalars().all())
     
     # 合并并去重
     all_libraries = {lib.id: lib for lib in public_libraries}
@@ -102,11 +113,12 @@ def book_to_summary(book: Book, base_url: str = "") -> BookSummary:
     """转换书籍为摘要格式"""
     # 获取主版本的格式
     file_format = None
-    primary_version = next((v for v in book.versions if v.is_primary), None)
-    if not primary_version and book.versions:
-        primary_version = book.versions[0]
-    if primary_version:
-        file_format = primary_version.file_format
+    if hasattr(book, 'versions') and book.versions:
+        primary_version = next((v for v in book.versions if v.is_primary), None)
+        if not primary_version:
+            primary_version = book.versions[0] if book.versions else None
+        if primary_version:
+            file_format = primary_version.file_format
     
     # 判断是否为新书（7天内添加）
     is_new = False
@@ -129,7 +141,7 @@ def book_to_summary(book: Book, base_url: str = "") -> BookSummary:
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     获取首页 Dashboard 数据
@@ -142,20 +154,24 @@ async def get_dashboard(
     """
     
     # 1. 获取用户可访问的书库
-    accessible_libraries = get_user_accessible_libraries(db, current_user)
+    accessible_libraries = await get_user_accessible_libraries(db, current_user)
     library_ids = [lib.id for lib in accessible_libraries]
     
     # 2. 构建书库摘要列表（包含书籍数量）
     libraries_summary = []
     for library in accessible_libraries:
-        book_count = db.query(func.count(Book.id)).filter(
-            Book.library_id == library.id
-        ).scalar()
+        # 获取书籍数量
+        result = await db.execute(
+            select(func.count(Book.id)).where(Book.library_id == library.id)
+        )
+        book_count = result.scalar() or 0
         
         # 获取最新一本书作为封面
-        latest_book = db.query(Book).filter(
-            Book.library_id == library.id
-        ).order_by(desc(Book.added_at)).first()
+        result = await db.execute(
+            select(Book).where(Book.library_id == library.id)
+            .order_by(desc(Book.added_at)).limit(1)
+        )
+        latest_book = result.scalar_one_or_none()
         
         cover_url = f"/books/{latest_book.id}/cover" if latest_book else None
         
@@ -168,14 +184,17 @@ async def get_dashboard(
     
     # 3. 获取继续阅读列表（有进度但未完成的书籍）
     continue_reading = []
-    reading_progress_list = db.query(ReadingProgress).options(
-        joinedload(ReadingProgress.book).joinedload(Book.library),
-        joinedload(ReadingProgress.book).joinedload(Book.author)
-    ).filter(
-        ReadingProgress.user_id == current_user.id,
-        ReadingProgress.finished == False,
-        ReadingProgress.progress > 0
-    ).order_by(desc(ReadingProgress.last_read_at)).limit(20).all()
+    result = await db.execute(
+        select(ReadingProgress).options(
+            selectinload(ReadingProgress.book).selectinload(Book.library),
+            selectinload(ReadingProgress.book).selectinload(Book.author)
+        ).where(
+            ReadingProgress.user_id == current_user.id,
+            ReadingProgress.finished == False,
+            ReadingProgress.progress > 0
+        ).order_by(desc(ReadingProgress.last_read_at)).limit(20)
+    )
+    reading_progress_list = result.scalars().all()
     
     for progress in reading_progress_list:
         book = progress.book
@@ -194,12 +213,14 @@ async def get_dashboard(
     # 4. 获取每个书库的最新书籍
     latest_by_library = []
     for library in accessible_libraries:
-        latest_books = db.query(Book).options(
-            joinedload(Book.author),
-            joinedload(Book.versions)
-        ).filter(
-            Book.library_id == library.id
-        ).order_by(desc(Book.added_at)).limit(10).all()
+        result = await db.execute(
+            select(Book).options(
+                selectinload(Book.author),
+                selectinload(Book.versions)
+            ).where(Book.library_id == library.id)
+            .order_by(desc(Book.added_at)).limit(10)
+        )
+        latest_books = list(result.scalars().all())
         
         if latest_books:
             latest_by_library.append(LibraryLatest(
@@ -209,9 +230,10 @@ async def get_dashboard(
             ))
     
     # 5. 获取收藏数量
-    favorites_count = db.query(func.count(Favorite.id)).filter(
-        Favorite.user_id == current_user.id
-    ).scalar()
+    result = await db.execute(
+        select(func.count(Favorite.id)).where(Favorite.user_id == current_user.id)
+    )
+    favorites_count = result.scalar() or 0
     
     return DashboardResponse(
         continue_reading=continue_reading,
@@ -225,27 +247,30 @@ async def get_dashboard(
 async def get_continue_reading(
     limit: int = 20,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取继续阅读列表"""
     
-    accessible_libraries = get_user_accessible_libraries(db, current_user)
+    accessible_libraries = await get_user_accessible_libraries(db, current_user)
     library_ids = [lib.id for lib in accessible_libraries]
     
-    reading_progress_list = db.query(ReadingProgress).options(
-        joinedload(ReadingProgress.book).joinedload(Book.library),
-        joinedload(ReadingProgress.book).joinedload(Book.author)
-    ).filter(
-        ReadingProgress.user_id == current_user.id,
-        ReadingProgress.finished == False,
-        ReadingProgress.progress > 0
-    ).order_by(desc(ReadingProgress.last_read_at)).limit(limit).all()
+    result = await db.execute(
+        select(ReadingProgress).options(
+            selectinload(ReadingProgress.book).selectinload(Book.library),
+            selectinload(ReadingProgress.book).selectinload(Book.author)
+        ).where(
+            ReadingProgress.user_id == current_user.id,
+            ReadingProgress.finished == False,
+            ReadingProgress.progress > 0
+        ).order_by(desc(ReadingProgress.last_read_at)).limit(limit)
+    )
+    reading_progress_list = result.scalars().all()
     
-    result = []
+    items = []
     for progress in reading_progress_list:
         book = progress.book
         if book and book.library_id in library_ids:
-            result.append(ContinueReadingItem(
+            items.append(ContinueReadingItem(
                 id=book.id,
                 title=book.title,
                 author_name=book.author.name if book.author else None,
@@ -256,27 +281,32 @@ async def get_continue_reading(
                 library_name=book.library.name
             ))
     
-    return result
+    return items
 
 
 @router.get("/libraries", response_model=List[LibrarySummary])
 async def get_libraries(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取用户可访问的书库列表"""
     
-    accessible_libraries = get_user_accessible_libraries(db, current_user)
+    accessible_libraries = await get_user_accessible_libraries(db, current_user)
     
     result = []
     for library in accessible_libraries:
-        book_count = db.query(func.count(Book.id)).filter(
-            Book.library_id == library.id
-        ).scalar()
+        # 获取书籍数量
+        count_result = await db.execute(
+            select(func.count(Book.id)).where(Book.library_id == library.id)
+        )
+        book_count = count_result.scalar() or 0
         
-        latest_book = db.query(Book).filter(
-            Book.library_id == library.id
-        ).order_by(desc(Book.added_at)).first()
+        # 获取最新一本书作为封面
+        book_result = await db.execute(
+            select(Book).where(Book.library_id == library.id)
+            .order_by(desc(Book.added_at)).limit(1)
+        )
+        latest_book = book_result.scalar_one_or_none()
         
         cover_url = f"/books/{latest_book.id}/cover" if latest_book else None
         
@@ -295,27 +325,32 @@ async def get_library_latest(
     library_id: int,
     limit: int = 20,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """获取指定书库的最新书籍"""
     
     # 验证权限
-    accessible_libraries = get_user_accessible_libraries(db, current_user)
+    accessible_libraries = await get_user_accessible_libraries(db, current_user)
     library_ids = [lib.id for lib in accessible_libraries]
     
     if library_id not in library_ids:
         raise HTTPException(status_code=403, detail="无权访问此书库")
     
-    library = db.query(Library).filter(Library.id == library_id).first()
+    result = await db.execute(
+        select(Library).where(Library.id == library_id)
+    )
+    library = result.scalar_one_or_none()
     if not library:
         raise HTTPException(status_code=404, detail="书库不存在")
     
-    latest_books = db.query(Book).options(
-        joinedload(Book.author),
-        joinedload(Book.versions)
-    ).filter(
-        Book.library_id == library_id
-    ).order_by(desc(Book.added_at)).limit(limit).all()
+    result = await db.execute(
+        select(Book).options(
+            selectinload(Book.author),
+            selectinload(Book.versions)
+        ).where(Book.library_id == library_id)
+        .order_by(desc(Book.added_at)).limit(limit)
+    )
+    latest_books = list(result.scalars().all())
     
     return LibraryLatest(
         library_id=library.id,

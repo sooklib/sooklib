@@ -66,7 +66,7 @@ app.mount("/static", StaticFiles(directory="app/web/static", html=False), name="
 templates = Jinja2Templates(directory="app/web/templates")
 
 # 导入路由（延迟导入避免循环依赖）
-from app.web.routes import admin, api, auth, bookmarks, dashboard, opds, pages, permissions, tags, user
+from app.web.routes import admin, api, auth, bookmarks, dashboard, opds, pages, permissions, reader, tags, user
 
 # 注册路由（必须在挂载Flutter之前）
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
@@ -79,6 +79,7 @@ app.include_router(user.router, prefix="/api/user", tags=["用户功能"])
 app.include_router(dashboard.router, tags=["Dashboard"])
 app.include_router(opds.router, prefix="/opds", tags=["OPDS"])
 app.include_router(pages.router, tags=["页面"])
+app.include_router(reader.router, tags=["阅读器"])
 
 # 挂载Flutter Web UI到根路径（注意：必须最后挂载，否则会拦截其他路由）
 # html=True 会让 SPA 路由正常工作
