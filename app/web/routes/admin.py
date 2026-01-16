@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import FilenamePattern, Library, LibraryPermission, Book, User
+from app.models import FilenamePattern, Library, LibraryPermission, Book, User, BookTag
 from app.web.routes.auth import get_current_user
 from app.security import hash_password
 from app.utils.filename_analyzer import FilenameAnalyzer
@@ -1486,9 +1486,9 @@ async def auto_tag_books(
     from sqlalchemy.orm import selectinload
     
     try:
-        # 构建查询 - 预加载tags和author关系
+        # 构建查询 - 预加载book_tags和author关系
         query = select(Book).options(
-            selectinload(Book.tags),
+            selectinload(Book.book_tags).selectinload(BookTag.tag),
             selectinload(Book.author)
         )
         
