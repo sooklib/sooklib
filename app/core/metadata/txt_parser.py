@@ -2,6 +2,7 @@
 TXT文件名解析器
 从文件名提取作者和书名信息
 支持动态规则加载和统计
+同时提供简介智能提取功能
 """
 import json
 import re
@@ -215,3 +216,169 @@ class TxtParser:
         except Exception as e:
             log.error(f"更新规则统计失败: {e}")
             await self.db.rollback()
+    
+    def extract_description(self, content: str, max_length: int = 500) -> Optional[str]:
+        """
+        智能提取TXT简介
+        
+        采用三级策略:
+        1. 提取推书人评论/书评
+        2. 提取开头简介段落
+        3. 使用前250字兜底
+        
+        Args:
+            content: 书籍内容
+            max_length: 简介最大长度
+            
+        Returns:
+            提取的简介，失败返回None
+        """
+        if not content or len(content) < 50:
+            return None
+        
+        # 策略1：提取推书人评论
+        desc = self._extract_recommender_comment(content)
+        if desc:
+            return self._clean_description(desc, max_length)
+        
+        # 策略2：提取开头简介段落
+        desc = self._extract_intro_section(content)
+        if desc:
+            return self._clean_description(desc, max_length)
+        
+        # 策略3：使用前250字兜底
+        return self._fallback_description(content, 250)
+    
+    def _extract_recommender_comment(self, content: str) -> Optional[str]:
+        """提取推书人评论"""
+        # 匹配推荐理由、书评等
+        patterns = [
+            r'【推荐理由】(.+?)(?:【|第一章|正文|序章|\n\n\n)',
+            r'【书评】(.+?)(?:【|第一章|正文|序章|\n\n\n)',
+            r'【简介】(.+?)(?:【|第一章|正文|序章|\n\n\n)',
+            r'【内容简介】(.+?)(?:【|第一章|正文|序章|\n\n\n)',
+            r'推书人说[:：](.+?)(?:\n\n|\n第|正文)',
+            r'内容介绍[:：](.+?)(?:\n\n|\n第|正文)',
+        ]
+        
+        # 只搜索前2000字
+        search_text = content[:2000]
+        
+        for pattern in patterns:
+            match = re.search(pattern, search_text, re.DOTALL)
+            if match:
+                desc = match.group(1).strip()
+                if 50 <= len(desc) <= 800:  # 合理的简介长度
+                    log.debug(f"通过推书人评论提取到简介: {len(desc)}字")
+                    return desc
+        
+        return None
+    
+    def _extract_intro_section(self, content: str) -> Optional[str]:
+        """提取开头简介段落"""
+        # 识别特征
+        intro_keywords = ['简介', '内容介绍', '故事简介', '内容梗概', '作品简介']
+        
+        # 搜索前1500字
+        search_text = content[:1500]
+        lines = search_text.split('\n')
+        
+        intro_start = -1
+        intro_end = -1
+        
+        # 查找简介开始位置
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if any(keyword in line_stripped for keyword in intro_keywords):
+                intro_start = i + 1  # 从下一行开始
+                break
+        
+        if intro_start < 0:
+            return None
+        
+        # 从简介开始位置往后找到结束
+        intro_lines = []
+        for i in range(intro_start, min(intro_start + 20, len(lines))):
+            line = lines[i].strip()
+            
+            # 遇到章节标题或明显的正文标记停止
+            if (line.startswith('第') and ('章' in line or '节' in line)) or \
+               line.startswith('Chapter') or \
+               line.startswith('序章') or \
+               line.startswith('楔子') or \
+               line.startswith('正文'):
+                break
+            
+            if line:  # 非空行
+                intro_lines.append(line)
+        
+        if intro_lines:
+            desc = '\n'.join(intro_lines)
+            if 50 <= len(desc) <= 800:
+                log.debug(f"通过简介段落提取到简介: {len(desc)}字")
+                return desc
+        
+        return None
+    
+    def _fallback_description(self, content: str, length: int = 250) -> str:
+        """兜底方案：使用前N字"""
+        # 跳过可能的文件头信息
+        start_pos = 0
+        
+        # 跳过常见的文件头标记
+        header_patterns = [
+            r'^.*?(?:【|『|\[).*?(?:】|』|\]).*?\n',  # 跳过【xxx】这类标记
+            r'^.*?来源[:：].*?\n',
+            r'^.*?转载.*?\n',
+        ]
+        
+        for pattern in header_patterns:
+            match = re.match(pattern, content, re.MULTILINE)
+            if match:
+                start_pos = match.end()
+        
+        # 提取内容
+        text = content[start_pos:start_pos + length * 2]  # 多取一些以防截断
+        
+        # 清理并截断
+        text = text.strip()
+        if len(text) > length:
+            # 尝试在句号处截断
+            sentences = text[:length + 50].split('。')
+            if len(sentences) > 1:
+                text = '。'.join(sentences[:-1]) + '。'
+            else:
+                text = text[:length]
+        
+        text = text + "..." if len(content) > start_pos + length else text
+        
+        log.debug(f"使用兜底方案提取简介: {len(text)}字")
+        return text
+    
+    def _clean_description(self, text: str, max_length: int) -> str:
+        """清理简介文本"""
+        # 移除多余空白
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
+        
+        # 过滤常见广告语
+        ad_patterns = [
+            r'.*?(?:vip|VIP).*?(?:群|QQ).*?\d+',
+            r'.*?(?:下载|阅读).*?(?:www|http)',
+            r'.*?更新最快.*?',
+            r'.*?笔趣阁.*?',
+        ]
+        
+        for pattern in ad_patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+        
+        # 限制长度
+        if len(text) > max_length:
+            # 在句号处截断
+            sentences = text[:max_length + 50].split('。')
+            if len(sentences) > 1:
+                text = '。'.join(sentences[:-1]) + '。'
+            else:
+                text = text[:max_length] + '...'
+        
+        return text.strip()
