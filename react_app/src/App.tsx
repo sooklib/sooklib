@@ -33,12 +33,19 @@ const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
 
 function App() {
   const mode = useThemeStore((state) => state.mode)
+  const initSystemListener = useThemeStore((state) => state.initSystemListener)
   const checkAuth = useAuthStore((state) => state.checkAuth)
 
   // 应用启动时检查认证状态
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
+
+  // 初始化系统主题监听
+  useEffect(() => {
+    const cleanup = initSystemListener()
+    return cleanup
+  }, [initSystemListener])
 
   const theme = createTheme({
     palette: {

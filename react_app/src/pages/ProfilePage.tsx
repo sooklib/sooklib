@@ -1,11 +1,11 @@
-import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, Switch } from '@mui/material'
-import { Person, Lock, History, Favorite, DarkMode, Logout } from '@mui/icons-material'
+import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton } from '@mui/material'
+import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout } from '@mui/icons-material'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore } from '../stores/themeStore'
 
 export default function ProfilePage() {
   const { user, logout } = useAuthStore()
-  const { mode, toggleMode } = useThemeStore()
+  const { preference, setPreference } = useThemeStore()
 
   return (
     <Box sx={{ p: 3 }}>
@@ -31,12 +31,35 @@ export default function ProfilePage() {
       {/* 设置列表 */}
       <Card>
         <List>
-          <ListItem>
-            <ListItemIcon>
-              <DarkMode />
-            </ListItemIcon>
-            <ListItemText primary="深色模式" />
-            <Switch checked={mode === 'dark'} onChange={toggleMode} />
+          {/* 主题设置 */}
+          <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mb: 1.5 }}>
+              <ListItemIcon sx={{ minWidth: 40 }}>
+                <SettingsBrightness />
+              </ListItemIcon>
+              <ListItemText primary="主题设置" secondary="选择应用的显示主题" />
+            </Box>
+            <ToggleButtonGroup
+              value={preference}
+              exclusive
+              onChange={(_, value) => value && setPreference(value)}
+              fullWidth
+              size="small"
+              sx={{ ml: 5 }}
+            >
+              <ToggleButton value="light">
+                <LightMode sx={{ mr: 0.5, fontSize: 18 }} />
+                日间
+              </ToggleButton>
+              <ToggleButton value="dark">
+                <DarkMode sx={{ mr: 0.5, fontSize: 18 }} />
+                夜间
+              </ToggleButton>
+              <ToggleButton value="system">
+                <SettingsBrightness sx={{ mr: 0.5, fontSize: 18 }} />
+                跟随系统
+              </ToggleButton>
+            </ToggleButtonGroup>
           </ListItem>
           <Divider />
           <ListItem button>
