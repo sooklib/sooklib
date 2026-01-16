@@ -2,11 +2,16 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type CoverSize = 'small' | 'medium' | 'large'
+export type PaginationMode = 'traditional' | 'infinite'
 
 interface SettingsState {
   // 封面尺寸设置
   coverSize: CoverSize
   setCoverSize: (size: CoverSize) => void
+  
+  // 分页模式设置
+  paginationMode: PaginationMode
+  setPaginationMode: (mode: PaginationMode) => void
   
   // 获取封面尺寸的像素值
   getCoverWidth: () => number
@@ -23,8 +28,10 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       coverSize: 'medium',
+      paginationMode: 'traditional',  // 默认传统分页
       
       setCoverSize: (size) => set({ coverSize: size }),
+      setPaginationMode: (mode) => set({ paginationMode: mode }),
       
       getCoverWidth: () => COVER_SIZE_MAP[get().coverSize],
     }),

@@ -1,7 +1,8 @@
 import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material'
-import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout } from '@mui/icons-material'
+import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout, PhotoSizeSelectLarge, ViewList, AllInclusive } from '@mui/icons-material'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore } from '../stores/themeStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
@@ -9,6 +10,7 @@ import api from '../services/api'
 export default function ProfilePage() {
   const { user, logout } = useAuthStore()
   const { preference, setPreference } = useThemeStore()
+  const { coverSize, setCoverSize, paginationMode, setPaginationMode } = useSettingsStore()
   const navigate = useNavigate()
   const [favoriteCount, setFavoriteCount] = useState(0)
   const [historyCount, setHistoryCount] = useState(0)
@@ -52,16 +54,18 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* 设置列表 */}
-      <Card>
-        <List>
+      {/* 显示设置卡片 */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            显示设置
+          </Typography>
+          
           {/* 主题设置 */}
-          <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start', py: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mb: 1.5 }}>
-              <ListItemIcon sx={{ minWidth: 40 }}>
-                <SettingsBrightness />
-              </ListItemIcon>
-              <ListItemText primary="主题设置" secondary="选择应用的显示主题" />
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+              <SettingsBrightness sx={{ mr: 1, color: 'text.secondary' }} />
+              <Typography variant="body1">主题模式</Typography>
             </Box>
             <ToggleButtonGroup
               value={preference}
@@ -69,7 +73,6 @@ export default function ProfilePage() {
               onChange={(_, value) => value && setPreference(value)}
               fullWidth
               size="small"
-              sx={{ ml: 5 }}
             >
               <ToggleButton value="light">
                 <LightMode sx={{ mr: 0.5, fontSize: 18 }} />
@@ -84,8 +87,69 @@ export default function ProfilePage() {
                 跟随系统
               </ToggleButton>
             </ToggleButtonGroup>
-          </ListItem>
-          <Divider />
+          </Box>
+          
+          <Divider sx={{ my: 2 }} />
+          
+          {/* 封面尺寸设置 */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+              <PhotoSizeSelectLarge sx={{ mr: 1, color: 'text.secondary' }} />
+              <Typography variant="body1">封面尺寸</Typography>
+            </Box>
+            <ToggleButtonGroup
+              value={coverSize}
+              exclusive
+              onChange={(_, value) => value && setCoverSize(value)}
+              fullWidth
+              size="small"
+            >
+              <ToggleButton value="small">
+                小
+              </ToggleButton>
+              <ToggleButton value="medium">
+                中
+              </ToggleButton>
+              <ToggleButton value="large">
+                大
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+          
+          <Divider sx={{ my: 2 }} />
+          
+          {/* 分页模式设置 */}
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+              <ViewList sx={{ mr: 1, color: 'text.secondary' }} />
+              <Typography variant="body1">分页模式</Typography>
+            </Box>
+            <ToggleButtonGroup
+              value={paginationMode}
+              exclusive
+              onChange={(_, value) => value && setPaginationMode(value)}
+              fullWidth
+              size="small"
+            >
+              <ToggleButton value="traditional">
+                <ViewList sx={{ mr: 0.5, fontSize: 18 }} />
+                传统分页
+              </ToggleButton>
+              <ToggleButton value="infinite">
+                <AllInclusive sx={{ mr: 0.5, fontSize: 18 }} />
+                无限滚动
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              传统分页：底部显示页码导航；无限滚动：滚动到底部自动加载更多
+            </Typography>
+          </Box>
+        </CardContent>
+      </Card>
+
+      {/* 账户设置卡片 */}
+      <Card>
+        <List>
           <ListItem button>
             <ListItemIcon>
               <Lock />

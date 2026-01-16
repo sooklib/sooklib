@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, Grid, FormControl, InputLabel, Select, MenuItem,
-  ToggleButtonGroup, ToggleButton, CircularProgress, Alert, Chip, Button, Menu
+  ToggleButtonGroup, ToggleButton, CircularProgress, Alert, Chip, Menu
 } from '@mui/material'
 import { ViewModule, ViewList, PhotoSizeSelectLarge } from '@mui/icons-material'
 import api from '../services/api'
 import { BookSummary, LibrarySummary } from '../types'
 import BookCard from '../components/BookCard'
-import { useSettingsStore, CoverSize } from '../stores/settingsStore'
+import Pagination from '../components/Pagination'
+import { useSettingsStore } from '../stores/settingsStore'
 
 interface BookResponse {
   id: number
@@ -30,7 +31,7 @@ interface BooksApiResponse {
 export default function LibraryPage() {
   const { libraryId } = useParams()
   const navigate = useNavigate()
-  const { coverSize, setCoverSize } = useSettingsStore()
+  const { coverSize, setCoverSize, paginationMode } = useSettingsStore()
   
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -41,6 +42,7 @@ export default function LibraryPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortBy, setSortBy] = useState('added_at')
   const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
   const [sizeMenuAnchor, setSizeMenuAnchor] = useState<null | HTMLElement>(null)
@@ -59,8 +61,9 @@ export default function LibraryPage() {
   useEffect(() => {
     setPage(1)
     setHasMore(true)
+    setBooks([])
     loadBooks(1, false)
-  }, [selectedLibrary])
+  }, [selectedLibrary, paginationMode])
 
   const loadLibraries = async () => {
     try {
@@ -107,6 +110,7 @@ export default function LibraryPage() {
       
       // 更新总数和分页状态
       setTotalCount(response.data.total)
+      setTotalPages(response.data.total_pages)
       setHasMore(pageNum < response.data.total_pages)
     } catch (err) {
       console.error('加载书籍失败:', err)
@@ -117,7 +121,15 @@ export default function LibraryPage() {
     }
   }
 
-  // 加载更多
+  // 传统分页：切换页码
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage)
+    loadBooks(newPage, false)
+    // 滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // 无限滚动：加载更多
   const loadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
       const nextPage = page + 1
@@ -126,8 +138,10 @@ export default function LibraryPage() {
     }
   }, [page, loadingMore, hasMore])
 
-  // 无限滚动观察器
+  // 无限滚动观察器（仅在infinite模式下启用）
   useEffect(() => {
+    if (paginationMode !== 'infinite') return
+    
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
@@ -142,7 +156,7 @@ export default function LibraryPage() {
     }
     
     return () => observer.disconnect()
-  }, [loadMore, hasMore, loading, loadingMore])
+  }, [loadMore, hasMore, loading, loadingMore, paginationMode])
 
   const handleLibraryChange = (newLibraryId: number | '') => {
     setSelectedLibrary(newLibraryId)
@@ -179,6 +193,38 @@ export default function LibraryPage() {
   }
 
   const currentLibrary = libraries.find((lib) => lib.id === selectedLibrary)
+
+  // 渲染底部分页/加载组件
+  const renderPagination = () => {
+    if (paginationMode === 'traditional') {
+      // 传统分页模式
+      return totalPages > 0 && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+          disabled={loading}
+        />
+      )
+    } else {
+      // 无限滚动模式
+      return (
+        <>
+          <Box ref={observerTarget} sx={{ height: 20, mt: 4 }} />
+          {loadingMore && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={32} />
+            </Box>
+          )}
+          {!hasMore && books.length > 0 && (
+            <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
+              已加载全部书籍
+            </Typography>
+          )}
+        </>
+      )
+    }
+  }
 
   return (
     <Box sx={{ p: 3 }}>
@@ -278,13 +324,21 @@ export default function LibraryPage() {
       </Box>
 
       {/* 统计信息 */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 1 }}>
+      <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         <Chip
-          label={totalCount > 0 ? `共 ${totalCount} 本书` : `共 ${books.length} 本书`}
+          label={`共 ${totalCount} 本书`}
           variant="outlined"
           size="small"
         />
-        {books.length > 0 && books.length < totalCount && (
+        {paginationMode === 'traditional' && totalPages > 0 && (
+          <Chip
+            label={`第 ${page} 页 / 共 ${totalPages} 页`}
+            size="small"
+            color="primary"
+            variant="outlined"
+          />
+        )}
+        {paginationMode === 'infinite' && books.length > 0 && books.length < totalCount && (
           <Chip
             label={`已加载 ${books.length}`}
             size="small"
@@ -328,18 +382,8 @@ export default function LibraryPage() {
               </Grid>
             ))}
           </Grid>
-          {/* 无限滚动触发器 */}
-          <Box ref={observerTarget} sx={{ height: 20, mt: 4 }} />
-          {loadingMore && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress size={32} />
-            </Box>
-          )}
-          {!hasMore && books.length > 0 && (
-            <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
-              已加载全部书籍
-            </Typography>
-          )}
+          {/* 分页组件 */}
+          {renderPagination()}
         </>
       ) : (
         /* 列表视图 */
@@ -405,18 +449,8 @@ export default function LibraryPage() {
               </Box>
             ))}
           </Box>
-          {/* 无限滚动触发器 */}
-          <Box ref={observerTarget} sx={{ height: 20, mt: 2 }} />
-          {loadingMore && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress size={32} />
-            </Box>
-          )}
-          {!hasMore && books.length > 0 && (
-            <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
-              已加载全部书籍
-            </Typography>
-          )}
+          {/* 分页组件 */}
+          {renderPagination()}
         </>
       )}
     </Box>
