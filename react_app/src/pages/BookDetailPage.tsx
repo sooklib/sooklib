@@ -96,9 +96,10 @@ export default function BookDetailPage() {
         await api.post(`/api/user/favorites/${id}`)
         setIsFavorite(true)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('切换收藏失败:', err)
-      alert('操作失败，请重试')
+      const errorMsg = err.response?.data?.detail || err.message || '操作失败，请重试'
+      alert(errorMsg)
     }
   }
 
