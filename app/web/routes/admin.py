@@ -1488,9 +1488,9 @@ async def auto_tag_books(
     from app.models import Tag
     
     try:
-        # 构建查询 - 预加载tags和author关系
+        # 构建查询 - 预加载book_tags关系（不是tags，因为tags是association_proxy）
         query = select(Book).options(
-            selectinload(Book.tags),
+            selectinload(Book.book_tags).selectinload(BookTag.tag),
             selectinload(Book.author)
         )
         
@@ -1563,8 +1563,8 @@ async def auto_tag_books(
                 processed_count += 1
                 
                 if auto_tags:
-                    # 获取或创建标签
-                    existing_tag_names = {t.name for t in book.tags}
+                    # 获取现有标签名（通过book_tags关系）
+                    existing_tag_names = {bt.tag.name for bt in book.book_tags if bt.tag}
                     
                     for tag_name in auto_tags:
                         if tag_name not in existing_tag_names or request.reprocess:
@@ -1579,8 +1579,11 @@ async def auto_tag_books(
                                 db.add(tag)
                                 await db.flush()
                             
-                            if tag not in book.tags:
-                                book.tags.append(tag)
+                            # 检查是否已存在
+                            has_tag = any(bt.tag_id == tag.id for bt in book.book_tags)
+                            if not has_tag:
+                                new_book_tag = BookTag(book_id=book.id, tag_id=tag.id)
+                                db.add(new_book_tag)
                                 tagged_count += 1
                 
                 # 每处理100本书提交一次
