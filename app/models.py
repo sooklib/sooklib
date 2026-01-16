@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.associationproxy import association_proxy
 
 from app.database import Base
 
@@ -150,6 +151,9 @@ class Book(Base):
     book_tags = relationship("BookTag", back_populates="book", cascade="all, delete-orphan")
     favorites = relationship("Favorite", back_populates="book", cascade="all, delete-orphan")
     user_book_tags = relationship("UserBookTag", back_populates="book", cascade="all, delete-orphan")
+    
+    # 便捷属性：通过book_tags访问tags
+    tags = association_proxy("book_tags", "tag")
 
 
 class BookVersion(Base):
