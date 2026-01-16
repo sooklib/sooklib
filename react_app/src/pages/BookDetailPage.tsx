@@ -58,7 +58,7 @@ export default function BookDetailPage() {
 
   const checkFavoriteStatus = async () => {
     try {
-      const response = await api.get(`/user/favorites/${id}/status`)
+      const response = await api.get(`/api/user/favorites/${id}/check`)
       setIsFavorite(response.data.is_favorite)
     } catch (err) {
       console.error('检查收藏状态失败:', err)
@@ -90,10 +90,10 @@ export default function BookDetailPage() {
   const toggleFavorite = async () => {
     try {
       if (isFavorite) {
-        await api.delete(`/user/favorites/${id}`)
+        await api.delete(`/api/user/favorites/${id}`)
         setIsFavorite(false)
       } else {
-        await api.post(`/user/favorites/${id}`)
+        await api.post(`/api/user/favorites/${id}`)
         setIsFavorite(true)
       }
     } catch (err) {

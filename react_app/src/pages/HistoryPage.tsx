@@ -35,7 +35,7 @@ export default function HistoryPage() {
   const fetchHistory = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/user/reading-history');
+      const response = await api.get('/api/user/reading-history');
       setHistory(response.data.history);
       setError(null);
     } catch (err: any) {

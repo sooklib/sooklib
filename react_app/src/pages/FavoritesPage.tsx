@@ -32,7 +32,7 @@ export default function FavoritesPage() {
   const fetchFavorites = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/user/favorites');
+      const response = await api.get('/api/user/favorites');
       setFavorites(response.data);
       setError(null);
     } catch (err: any) {

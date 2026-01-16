@@ -18,11 +18,11 @@ export default function ProfilePage() {
     const fetchStats = async () => {
       try {
         // 获取收藏数量
-        const favRes = await api.get('/user/favorites', { params: { limit: 1 } })
-        setFavoriteCount(favRes.data.total || 0)
+        const favRes = await api.get('/api/user/favorites')
+        setFavoriteCount(favRes.data.length || 0)
 
         // 获取历史记录数量  
-        const histRes = await api.get('/user/history', { params: { limit: 1 } })
+        const histRes = await api.get('/api/user/reading-history', { params: { limit: 1 } })
         setHistoryCount(histRes.data.total || 0)
       } catch (error) {
         console.error('获取统计数据失败:', error)
