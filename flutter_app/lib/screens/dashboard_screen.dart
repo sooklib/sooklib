@@ -6,6 +6,8 @@ import '../providers/auth_provider.dart';
 import '../providers/dashboard_provider.dart';
 import '../models/library.dart';
 import '../services/api_config.dart';
+import '../widgets/shimmer_loading.dart';
+import '../utils/responsive.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -45,7 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Consumer<DashboardProvider>(
         builder: (context, provider, _) {
           if (provider.isLoading && provider.dashboardData == null) {
-            return const Center(child: CircularProgressIndicator());
+            return const DashboardSkeleton();
           }
 
           if (provider.errorMessage != null && provider.dashboardData == null) {
