@@ -81,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 for (var libraryLatest in provider.latestByLibrary) ...[
                   _buildSectionHeaderWithAction(
                     '📕 最新${libraryLatest.libraryName}',
-                    onSeeAll: () => context.push('/library?id=${libraryLatest.libraryId}'),
+                    onSeeAll: () => context.push('/library?libraryId=${libraryLatest.libraryId}'),
                   ),
                   SliverToBoxAdapter(
                     child: _buildBooksRow(libraryLatest.books),
@@ -343,7 +343,7 @@ class _LibraryCard extends StatelessWidget {
       child: Card(
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => context.push('/library?id=${library.id}'),
+          onTap: () => context.push('/library?libraryId=${library.id}'),
           child: Stack(
             fit: StackFit.expand,
             children: [

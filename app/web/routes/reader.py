@@ -72,6 +72,8 @@ async def _read_txt_content(file_path: Path) -> dict:
     """
     读取TXT文件内容
     """
+    import re
+    
     try:
         # 尝试多种编码
         encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030']
@@ -90,6 +92,9 @@ async def _read_txt_content(file_path: Path) -> dict:
                 status_code=500,
                 detail="无法解码文件内容"
             )
+        
+        # 清理常见的网站标记和乱码
+        content = _clean_txt_content(content)
         
         return {
             "format": "txt",
@@ -226,3 +231,46 @@ async def get_book_cover(
         content=cover_bytes,
         media_type="image/png"
     )
+
+
+def _clean_txt_content(content: str) -> str:
+    """
+    清理TXT内容中的常见乱码和网站标记
+    """
+    import re
+    
+    # 移除常见的网站广告标记
+    patterns_to_remove = [
+        # [书库] [数字] 等标记
+        r'\[书库\][\[\]\d,，\.。\s]*',
+        r'\[\d+\][\[\]\d,，\.。\s]*',
+        # 网站水印
+        r'本书来自[^\n]+\n?',
+        r'更多精彩[^\n]+\n?',
+        r'手机阅读[^\n]+\n?',
+        r'本书.*?网.*?\n?',
+        r'全文阅读[^\n]+\n?',
+        r'最新章节[^\n]+\n?',
+        r'www\.[a-zA-Z0-9]+\.[a-zA-Z]+',
+        r'http[s]?://[^\s\n]+',
+        # 零宽字符
+        r'[\u200b\u200c\u200d\ufeff]',
+        # 过多的空行（超过2个连续空行）
+        r'\n{4,}',
+    ]
+    
+    for pattern in patterns_to_remove:
+        try:
+            content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+        except Exception as e:
+            log.warning(f"清理模式失败: {pattern}, 错误: {e}")
+    
+    # 规范化换行
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    
+    # 移除行首行尾的空白字符（保留缩进）
+    lines = content.split('\n')
+    cleaned_lines = [line.rstrip() for line in lines]
+    content = '\n'.join(cleaned_lines)
+    
+    return content.strip()
