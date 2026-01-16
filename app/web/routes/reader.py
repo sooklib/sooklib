@@ -118,7 +118,7 @@ async def download_book(
     2. URL 参数 ?token=xxx (用于浏览器直接下载)
     """
     from sqlalchemy.orm import selectinload
-    from app.web.routes.auth import decode_token
+    from app.security import decode_access_token
     from app.utils.permissions import check_book_access
     from app.models import BookVersion
     
@@ -128,7 +128,7 @@ async def download_book(
     
     # 验证 token
     try:
-        payload = decode_token(token)
+        payload = decode_access_token(token)
         username = payload.get("sub")
         if not username:
             raise HTTPException(status_code=401, detail="无效的 token")

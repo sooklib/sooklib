@@ -7,6 +7,7 @@ import '../services/api_client.dart';
 class AuthProvider extends ChangeNotifier {
   User? _currentUser;
   bool _isLoading = false;
+  bool _isInitialized = false;  // 初始化完成标记
   String? _errorMessage;
 
   late final AuthService _authService;
@@ -22,11 +23,14 @@ class AuthProvider extends ChangeNotifier {
     final apiClient = ApiClient(_storage);
     _authService = AuthService(apiClient, _storage);
     await _loadSavedUser();
+    _isInitialized = true;  // 标记初始化完成
+    notifyListeners();  // 通知路由器重新评估
   }
 
   // Getters
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
+  bool get isInitialized => _isInitialized;  // 初始化完成状态
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _currentUser != null;
   bool get isAdmin => _currentUser?.isAdmin ?? false;

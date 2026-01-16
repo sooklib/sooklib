@@ -49,11 +49,18 @@ class MyApp extends StatelessWidget {
 
   GoRouter _router(AuthProvider authProvider) {
     return GoRouter(
-      // 不设置 initialLocation，让路由从 URL 读取
-      // 这样刷新页面时能保持当前路由
+      // 监听认证状态变化，当状态变化时重新评估路由
+      refreshListenable: authProvider,
       redirect: (context, state) {
-        final isAuth = authProvider.isAuthenticated;
         final currentPath = state.matchedLocation;
+        
+        // 如果还在初始化，不做任何重定向，保持当前URL
+        // 这样刷新页面时不会跳转
+        if (!authProvider.isInitialized) {
+          return null;
+        }
+        
+        final isAuth = authProvider.isAuthenticated;
         final isLoggingIn = currentPath == '/login';
         
         // 未登录且不在登录页 -> 跳转登录
@@ -71,7 +78,7 @@ class MyApp extends StatelessWidget {
           return '/home';
         }
 
-        // 其他情况保持当前路由
+        // 其他情况保持当前路由（这是关键！）
         return null;
       },
       routes: [
