@@ -3,13 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, IconButton, Drawer, List, ListItem, ListItemButton,
   ListItemText, Slider, ToggleButtonGroup, ToggleButton, CircularProgress,
-  Alert, AppBar, Toolbar, Divider, FormControl, Select, MenuItem, InputLabel
+  Alert, AppBar, Toolbar, Divider, FormControl, Select, MenuItem, Switch,
+  FormControlLabel, Grid, Chip
 } from '@mui/material'
 import {
   ArrowBack, Menu, Settings, TextFields, FormatLineSpacing,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Fullscreen, FullscreenExit,
+  PlayArrow, Stop, Timer, SpaceBar
 } from '@mui/icons-material'
-import ePub, { Book, Rendition, NavItem } from 'epubjs'
+import ePub, { Book, Rendition } from 'epubjs'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
@@ -39,12 +41,16 @@ interface FontInfo {
   file_url?: string
 }
 
-// 主题预设
+// 主题预设 (静读天下风格 - 8种主题)
 const themes = {
-  dark: { bg: '#1a1a1a', text: '#e0e0e0' },
-  sepia: { bg: '#f4ecd8', text: '#5b4636' },
-  light: { bg: '#ffffff', text: '#333333' },
-  green: { bg: '#c7edcc', text: '#2d4a32' },
+  dark: { bg: '#1a1a1a', text: '#e0e0e0', name: '暗黑' },
+  sepia: { bg: '#f4ecd8', text: '#5b4636', name: '羊皮纸' },
+  light: { bg: '#ffffff', text: '#333333', name: '亮色' },
+  green: { bg: '#c7edcc', text: '#2d4a32', name: '护眼绿' },
+  night: { bg: '#0d1117', text: '#8b949e', name: '深夜' },
+  cream: { bg: '#faf8f5', text: '#4a4a4a', name: '奶油' },
+  blue: { bg: '#1e2a38', text: '#9eb1c8', name: '深蓝' },
+  pink: { bg: '#fff5f5', text: '#5c4444', name: '粉嫩' },
 }
 
 export default function ReaderPage() {
@@ -77,6 +83,17 @@ export default function ReaderPage() {
   const [fontFamily, setFontFamily] = useState('"Noto Serif SC", "Source Han Serif CN", serif')
   const [fonts, setFonts] = useState<FontInfo[]>([])
   const [selectedFontId, setSelectedFontId] = useState('noto-serif')
+  const [letterSpacing, setLetterSpacing] = useState(0)
+  const [paragraphSpacing, setParagraphSpacing] = useState(1.5)
+  
+  // 高级功能 (静读天下风格)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [autoScroll, setAutoScroll] = useState(false)
+  const [autoScrollSpeed, setAutoScrollSpeed] = useState(30)
+  const autoScrollRef = useRef<number | null>(null)
+  const [showToolbar, setShowToolbar] = useState(true)
+  const [readingStartTime] = useState(Date.now())
+  const [readingTime, setReadingTime] = useState(0)
   
   // 抽屉
   const [tocOpen, setTocOpen] = useState(false)
@@ -87,20 +104,27 @@ export default function ReaderPage() {
   const [savedProgress, setSavedProgress] = useState<number | null>(null)
   const [contentLoaded, setContentLoaded] = useState(false)
 
+  // 阅读计时器
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setReadingTime(Math.floor((Date.now() - readingStartTime) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [readingStartTime])
+
   // 加载书籍信息
   useEffect(() => {
     if (id) {
       loadBook()
     }
     return () => {
-      // 清理 EPUB
       if (epubBook) {
         epubBook.destroy()
       }
     }
   }, [id])
 
-  // 保存进度（防抖）- 减少延迟到1秒
+  // 保存进度（防抖）
   useEffect(() => {
     const timer = setTimeout(() => {
       if (progress > 0 && id) {
@@ -114,7 +138,6 @@ export default function ReaderPage() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (progress > 0 && id) {
-        // 使用 sendBeacon 确保页面关闭前发送
         const data = JSON.stringify({
           progress: progress,
           position: null,
@@ -155,6 +178,9 @@ export default function ReaderPage() {
         if (settings.theme) setTheme(settings.theme)
         if (settings.selectedFontId) setSelectedFontId(settings.selectedFontId)
         if (settings.fontFamily) setFontFamily(settings.fontFamily)
+        if (settings.letterSpacing !== undefined) setLetterSpacing(settings.letterSpacing)
+        if (settings.paragraphSpacing !== undefined) setParagraphSpacing(settings.paragraphSpacing)
+        if (settings.autoScrollSpeed) setAutoScrollSpeed(settings.autoScrollSpeed)
       } catch (e) {
         console.error('加载阅读设置失败:', e)
       }
@@ -164,9 +190,96 @@ export default function ReaderPage() {
   // 保存设置
   useEffect(() => {
     localStorage.setItem('reader_settings', JSON.stringify({ 
-      fontSize, lineHeight, theme, selectedFontId, fontFamily 
+      fontSize, lineHeight, theme, selectedFontId, fontFamily,
+      letterSpacing, paragraphSpacing, autoScrollSpeed
     }))
-  }, [fontSize, lineHeight, theme, selectedFontId, fontFamily])
+  }, [fontSize, lineHeight, theme, selectedFontId, fontFamily, letterSpacing, paragraphSpacing, autoScrollSpeed])
+
+  // 自动滚动功能
+  useEffect(() => {
+    if (autoScroll && contentRef.current && !isEpub) {
+      autoScrollRef.current = window.setInterval(() => {
+        if (contentRef.current) {
+          contentRef.current.scrollTop += autoScrollSpeed / 60
+          if (contentRef.current.scrollTop >= contentRef.current.scrollHeight - contentRef.current.clientHeight) {
+            setAutoScroll(false)
+          }
+        }
+      }, 1000 / 60)
+    } else {
+      if (autoScrollRef.current) {
+        clearInterval(autoScrollRef.current)
+        autoScrollRef.current = null
+      }
+    }
+    return () => {
+      if (autoScrollRef.current) {
+        clearInterval(autoScrollRef.current)
+      }
+    }
+  }, [autoScroll, autoScrollSpeed, isEpub])
+
+  // 全屏切换
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen()
+      setIsFullscreen(true)
+    } else {
+      document.exitFullscreen()
+      setIsFullscreen(false)
+    }
+  }
+
+  // 监听全屏变化
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  // 点击区域翻页（静读天下风格）
+  const handleContentClick = (e: React.MouseEvent) => {
+    // 不处理设置抽屉打开时的点击
+    if (settingsOpen || tocOpen) return
+    
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const width = rect.width
+    
+    // 点击左侧1/4区域
+    if (x < width * 0.25) {
+      if (isEpub) {
+        epubPrev()
+      } else {
+        prevChapter()
+      }
+    }
+    // 点击右侧1/4区域
+    else if (x > width * 0.75) {
+      if (isEpub) {
+        epubNext()
+      } else {
+        nextChapter()
+      }
+    }
+    // 点击中间区域
+    else {
+      setShowToolbar(!showToolbar)
+    }
+  }
+
+  // 格式化阅读时长
+  const formatReadingTime = () => {
+    const hours = Math.floor(readingTime / 3600)
+    const minutes = Math.floor((readingTime % 3600) / 60)
+    const seconds = readingTime % 60
+    if (hours > 0) {
+      return `${hours}时${minutes}分`
+    }
+    return `${minutes}分${seconds}秒`
+  }
 
   // 切换字体
   const handleFontChange = (fontId: string) => {
@@ -187,17 +300,17 @@ export default function ReaderPage() {
           color: currentTheme.text,
           'font-size': `${fontSize}px`,
           'line-height': `${lineHeight}`,
+          'letter-spacing': `${letterSpacing}px`,
         }
       })
     }
-  }, [epubRendition, fontSize, lineHeight, theme])
+  }, [epubRendition, fontSize, lineHeight, theme, letterSpacing])
 
   const loadBook = async () => {
     try {
       setLoading(true)
       setError('')
 
-      // 先加载阅读进度
       try {
         const progressResponse = await api.get<ReadingProgress>(`/api/progress/${id}`)
         if (progressResponse.data.progress > 0) {
@@ -207,7 +320,6 @@ export default function ReaderPage() {
         console.log('无保存的阅读进度')
       }
 
-      // 获取书籍信息
       const bookResponse = await api.get(`/api/books/${id}`)
       const format = bookResponse.data.file_format.toLowerCase()
       setBookInfo({
@@ -246,10 +358,8 @@ export default function ReaderPage() {
 
   const loadEpub = async () => {
     try {
-      // 获取 EPUB 文件 URL
       const epubUrl = `/api/books/${id}/content`
       
-      // 创建 EPUB 书籍
       const book = ePub(epubUrl, {
         requestHeaders: {
           'Authorization': `Bearer ${token}`
@@ -258,16 +368,13 @@ export default function ReaderPage() {
       
       setEpubBook(book)
       
-      // 等待书籍加载
       await book.ready
       
-      // 获取目录
       const navigation = await book.loaded.navigation
       if (navigation.toc) {
         setEpubToc(navigation.toc as EpubTocItem[])
       }
       
-      // 渲染到容器
       if (epubViewerRef.current) {
         const rendition = book.renderTo(epubViewerRef.current, {
           width: '100%',
@@ -277,7 +384,6 @@ export default function ReaderPage() {
         
         setEpubRendition(rendition)
         
-        // 应用主题
         const currentTheme = themes[theme]
         rendition.themes.default({
           body: {
@@ -288,10 +394,8 @@ export default function ReaderPage() {
           }
         })
         
-        // 显示第一页
         await rendition.display()
         
-        // 监听位置变化
         rendition.on('relocated', (location: any) => {
           const prog = book.locations.percentageFromCfi(location.start.cfi)
           setProgress(prog || 0)
@@ -306,7 +410,6 @@ export default function ReaderPage() {
   // TXT 内容加载后恢复进度
   useEffect(() => {
     if (contentLoaded && savedProgress !== null && !isEpub && contentRef.current) {
-      // 等待 DOM 渲染完成
       setTimeout(() => {
         if (contentRef.current) {
           const scrollHeight = contentRef.current.scrollHeight - contentRef.current.clientHeight
@@ -321,7 +424,6 @@ export default function ReaderPage() {
   // EPUB 渲染完成后恢复进度
   useEffect(() => {
     if (epubRendition && savedProgress !== null && epubBook) {
-      // 等待 locations 生成
       epubBook.locations.generate(1024).then(() => {
         const cfi = epubBook.locations.cfiFromPercentage(savedProgress)
         if (cfi) {
@@ -345,7 +447,6 @@ export default function ReaderPage() {
     }
   }
 
-  // 解析 TXT 章节
   const parseChapters = (text: string): Chapter[] => {
     const chapterPatterns = [
       /^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$/gm,
@@ -389,7 +490,6 @@ export default function ReaderPage() {
     return chapters
   }
 
-  // TXT 滚动处理
   const handleScroll = useCallback(() => {
     if (contentRef.current && !isEpub) {
       const { scrollTop, scrollHeight, clientHeight } = contentRef.current
@@ -408,7 +508,6 @@ export default function ReaderPage() {
     }
   }, [chapters, isEpub])
 
-  // TXT 跳转章节
   const goToChapter = (index: number) => {
     setCurrentChapter(index)
     setTocOpen(false)
@@ -418,7 +517,6 @@ export default function ReaderPage() {
     }
   }
 
-  // EPUB 跳转章节
   const goToEpubChapter = (href: string) => {
     setTocOpen(false)
     if (epubRendition) {
@@ -426,11 +524,9 @@ export default function ReaderPage() {
     }
   }
 
-  // EPUB 翻页
   const epubPrev = () => epubRendition?.prev()
   const epubNext = () => epubRendition?.next()
 
-  // TXT 上下章
   const prevChapter = () => {
     if (currentChapter > 0) goToChapter(currentChapter - 1)
   }
@@ -460,26 +556,57 @@ export default function ReaderPage() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: currentTheme.bg, color: currentTheme.text }}>
+    <Box 
+      sx={{ minHeight: '100vh', bgcolor: currentTheme.bg, color: currentTheme.text }}
+      onClick={handleContentClick}
+    >
       {/* 顶部栏 */}
-      <AppBar position="fixed" sx={{ bgcolor: 'rgba(0,0,0,0.8)' }}>
+      <AppBar 
+        position="fixed" 
+        sx={{ 
+          bgcolor: 'rgba(0,0,0,0.8)',
+          transform: showToolbar ? 'translateY(0)' : 'translateY(-100%)',
+          transition: 'transform 0.3s ease'
+        }}
+      >
         <Toolbar>
-        <IconButton edge="start" color="inherit" onClick={() => {
-          // 退出前保存进度
-          if (progress > 0 && id) {
-            saveProgress()
-          }
-          navigate(-1)
-        }}>
-          <ArrowBack />
-        </IconButton>
+          <IconButton edge="start" color="inherit" onClick={(e) => {
+            e.stopPropagation()
+            if (progress > 0 && id) {
+              saveProgress()
+            }
+            navigate(-1)
+          }}>
+            <ArrowBack />
+          </IconButton>
           <Typography variant="subtitle1" noWrap sx={{ flex: 1, ml: 1 }}>
             {bookInfo?.title}
           </Typography>
-          <IconButton color="inherit" onClick={() => setTocOpen(true)}>
+          
+          {/* 阅读时长 */}
+          <Chip 
+            icon={<Timer sx={{ fontSize: 16 }} />} 
+            label={formatReadingTime()} 
+            size="small" 
+            sx={{ mr: 1, color: 'white', bgcolor: 'rgba(255,255,255,0.1)' }}
+          />
+          
+          {/* 自动滚动 */}
+          {!isEpub && (
+            <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); setAutoScroll(!autoScroll) }}>
+              {autoScroll ? <Stop /> : <PlayArrow />}
+            </IconButton>
+          )}
+          
+          {/* 全屏 */}
+          <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}>
+            {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
+          </IconButton>
+          
+          <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); setTocOpen(true) }}>
             <Menu />
           </IconButton>
-          <IconButton color="inherit" onClick={() => setSettingsOpen(true)}>
+          <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); setSettingsOpen(true) }}>
             <Settings />
           </IconButton>
         </Toolbar>
@@ -487,29 +614,29 @@ export default function ReaderPage() {
 
       {/* 内容区域 */}
       {isEpub ? (
-        /* EPUB 阅读器 */
         <Box
           ref={epubViewerRef}
           sx={{
-            pt: 8,
-            pb: 10,
+            pt: showToolbar ? 8 : 0,
+            pb: showToolbar ? 10 : 0,
             height: '100vh',
             width: '100%',
+            transition: 'padding 0.3s ease',
           }}
         />
       ) : (
-        /* TXT 阅读器 */
         <Box
           ref={contentRef}
           onScroll={handleScroll}
           sx={{
-            pt: 8,
-            pb: 10,
+            pt: showToolbar ? 8 : 2,
+            pb: showToolbar ? 10 : 2,
             px: { xs: 2, sm: 4, md: 8, lg: 16 },
             maxWidth: 900,
             mx: 'auto',
             height: '100vh',
             overflow: 'auto',
+            transition: 'padding 0.3s ease',
           }}
         >
           <Typography
@@ -518,8 +645,12 @@ export default function ReaderPage() {
               fontSize: fontSize,
               lineHeight: lineHeight,
               fontFamily: fontFamily,
+              letterSpacing: `${letterSpacing}px`,
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
+              '& p, & div': {
+                marginBottom: `${paragraphSpacing}em`,
+              }
             }}
           >
             {chapters.map((chapter, index) => (
@@ -531,6 +662,7 @@ export default function ReaderPage() {
                     mb: 2,
                     mt: index > 0 ? 4 : 0,
                     color: currentTheme.text,
+                    fontFamily: fontFamily,
                   }}
                 >
                   {chapter.title}
@@ -558,11 +690,13 @@ export default function ReaderPage() {
           display: 'flex',
           alignItems: 'center',
           gap: 2,
+          transform: showToolbar ? 'translateY(0)' : 'translateY(100%)',
+          transition: 'transform 0.3s ease',
         }}
       >
         <IconButton
           size="small"
-          onClick={isEpub ? epubPrev : prevChapter}
+          onClick={(e) => { e.stopPropagation(); isEpub ? epubPrev() : prevChapter() }}
           disabled={!isEpub && currentChapter === 0}
           sx={{ color: 'white' }}
         >
@@ -579,6 +713,7 @@ export default function ReaderPage() {
               contentRef.current.scrollTop = scrollHeight * ((value as number) / 100)
             }
           }}
+          onClick={(e) => e.stopPropagation()}
           sx={{ flex: 1 }}
           size="small"
           disabled={isEpub}
@@ -588,7 +723,7 @@ export default function ReaderPage() {
         </Typography>
         <IconButton
           size="small"
-          onClick={isEpub ? epubNext : nextChapter}
+          onClick={(e) => { e.stopPropagation(); isEpub ? epubNext() : nextChapter() }}
           disabled={!isEpub && currentChapter >= chapters.length - 1}
           sx={{ color: 'white' }}
         >
@@ -597,10 +732,10 @@ export default function ReaderPage() {
       </Box>
 
       {/* 目录抽屉 */}
-      <Drawer anchor="left" open={tocOpen} onClose={() => setTocOpen(false)}>
+      <Drawer anchor="left" open={tocOpen} onClose={() => setTocOpen(false)} onClick={(e) => e.stopPropagation()}>
         <Box sx={{ width: 300, p: 2 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>目录</Typography>
-          <List>
+          <List sx={{ maxHeight: 'calc(100vh - 100px)', overflow: 'auto' }}>
             {isEpub ? (
               epubToc.map((item, index) => (
                 <ListItem key={index} disablePadding>
@@ -631,34 +766,65 @@ export default function ReaderPage() {
         </Box>
       </Drawer>
 
-      {/* 设置抽屉 */}
-      <Drawer anchor="right" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
-        <Box sx={{ width: 300, p: 3 }}>
+      {/* 设置抽屉 (静读天下风格 - 更多选项) */}
+      <Drawer anchor="right" open={settingsOpen} onClose={() => setSettingsOpen(false)} onClick={(e) => e.stopPropagation()}>
+        <Box sx={{ width: 320, p: 3, maxHeight: '100vh', overflow: 'auto' }}>
           <Typography variant="h6" sx={{ mb: 3 }}>阅读设置</Typography>
           
-          <Typography variant="subtitle2" gutterBottom>
-            <TextFields sx={{ fontSize: 16, mr: 1, verticalAlign: 'middle' }} />
-            字体大小
+          {/* 字体大小 */}
+          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <TextFields sx={{ fontSize: 16, mr: 1 }} />
+            字体大小 ({fontSize}px)
           </Typography>
           <Slider
             value={fontSize}
             onChange={(_, value) => setFontSize(value as number)}
             min={12}
-            max={28}
+            max={32}
             step={1}
             valueLabelDisplay="auto"
             sx={{ mb: 3 }}
           />
 
-          <Typography variant="subtitle2" gutterBottom>
-            <FormatLineSpacing sx={{ fontSize: 16, mr: 1, verticalAlign: 'middle' }} />
-            行间距
+          {/* 行间距 */}
+          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <FormatLineSpacing sx={{ fontSize: 16, mr: 1 }} />
+            行间距 ({lineHeight})
           </Typography>
           <Slider
             value={lineHeight}
             onChange={(_, value) => setLineHeight(value as number)}
             min={1.2}
-            max={2.5}
+            max={3.0}
+            step={0.1}
+            valueLabelDisplay="auto"
+            sx={{ mb: 3 }}
+          />
+
+          {/* 字间距 */}
+          <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <SpaceBar sx={{ fontSize: 16, mr: 1 }} />
+            字间距 ({letterSpacing}px)
+          </Typography>
+          <Slider
+            value={letterSpacing}
+            onChange={(_, value) => setLetterSpacing(value as number)}
+            min={-1}
+            max={5}
+            step={0.5}
+            valueLabelDisplay="auto"
+            sx={{ mb: 3 }}
+          />
+
+          {/* 段落间距 */}
+          <Typography variant="subtitle2" gutterBottom>
+            段落间距 ({paragraphSpacing}em)
+          </Typography>
+          <Slider
+            value={paragraphSpacing}
+            onChange={(_, value) => setParagraphSpacing(value as number)}
+            min={0.5}
+            max={3.0}
             step={0.1}
             valueLabelDisplay="auto"
             sx={{ mb: 3 }}
@@ -666,10 +832,8 @@ export default function ReaderPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          <Typography variant="subtitle2" gutterBottom>
-            <TextFields sx={{ fontSize: 16, mr: 1, verticalAlign: 'middle' }} />
-            字体
-          </Typography>
+          {/* 字体选择 */}
+          <Typography variant="subtitle2" gutterBottom>字体</Typography>
           <FormControl fullWidth size="small" sx={{ mb: 3 }}>
             <Select
               value={selectedFontId}
@@ -687,27 +851,70 @@ export default function ReaderPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          <Typography variant="subtitle2" gutterBottom>主题</Typography>
-          <ToggleButtonGroup
-            value={theme}
-            exclusive
-            onChange={(_, value) => value && setTheme(value)}
-            fullWidth
-            sx={{ mb: 2 }}
-          >
-            <ToggleButton value="dark" sx={{ bgcolor: themes.dark.bg, color: themes.dark.text }}>
-              暗黑
-            </ToggleButton>
-            <ToggleButton value="sepia" sx={{ bgcolor: themes.sepia.bg, color: themes.sepia.text }}>
-              护眼
-            </ToggleButton>
-            <ToggleButton value="light" sx={{ bgcolor: themes.light.bg, color: themes.light.text }}>
-              亮色
-            </ToggleButton>
-            <ToggleButton value="green" sx={{ bgcolor: themes.green.bg, color: themes.green.text }}>
-              绿色
-            </ToggleButton>
-          </ToggleButtonGroup>
+          {/* 主题选择 (8种) */}
+          <Typography variant="subtitle2" gutterBottom>主题 (8种)</Typography>
+          <Grid container spacing={1} sx={{ mb: 2 }}>
+            {Object.entries(themes).map(([key, value]) => (
+              <Grid item xs={3} key={key}>
+                <Box
+                  onClick={() => setTheme(key as keyof typeof themes)}
+                  sx={{
+                    width: '100%',
+                    aspectRatio: '1',
+                    bgcolor: value.bg,
+                    border: theme === key ? '3px solid #1976d2' : '1px solid #ccc',
+                    borderRadius: 1,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s',
+                    '&:hover': { transform: 'scale(1.05)' }
+                  }}
+                >
+                  <Typography sx={{ color: value.text, fontSize: 10 }}>
+                    {value.name}
+                  </Typography>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* 自动滚动速度 */}
+          {!isEpub && (
+            <>
+              <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <PlayArrow sx={{ fontSize: 16, mr: 1 }} />
+                自动滚动速度 ({autoScrollSpeed} 像素/秒)
+              </Typography>
+              <Slider
+                value={autoScrollSpeed}
+                onChange={(_, value) => setAutoScrollSpeed(value as number)}
+                min={10}
+                max={100}
+                step={5}
+                valueLabelDisplay="auto"
+                sx={{ mb: 2 }}
+              />
+            </>
+          )}
+
+          {/* 阅读统计 */}
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" gutterBottom>阅读统计</Typography>
+          <Box sx={{ bgcolor: 'action.hover', p: 2, borderRadius: 1 }}>
+            <Typography variant="body2">
+              📖 当前进度：{Math.round(progress * 100)}%
+            </Typography>
+            <Typography variant="body2">
+              ⏱️ 本次阅读：{formatReadingTime()}
+            </Typography>
+            <Typography variant="body2">
+              📚 章节：{currentChapter + 1} / {chapters.length}
+            </Typography>
+          </Box>
         </Box>
       </Drawer>
     </Box>
