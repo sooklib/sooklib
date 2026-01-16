@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material'
 import { useAuthStore } from './stores/authStore'
@@ -32,6 +33,12 @@ const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
 
 function App() {
   const mode = useThemeStore((state) => state.mode)
+  const checkAuth = useAuthStore((state) => state.checkAuth)
+
+  // 应用启动时检查认证状态
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
 
   const theme = createTheme({
     palette: {
