@@ -3,7 +3,6 @@ FastAPI Web应用
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
-import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
@@ -62,7 +61,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 配置静态文件（仅CSS/JS等，不包含flutter）
+# 配置静态文件（仅CSS/JS等）
 app.mount("/static", StaticFiles(directory="app/web/static", html=False), name="static")
 
 # 配置模板
@@ -103,78 +102,7 @@ if REACT_DIR.exists():
     
     # 挂载 React 静态资源（JS、CSS、assets 等）
     if (REACT_DIR / "assets").exists():
-        app.mount("/r/assets", StaticFiles(directory=REACT_DIR / "assets"), name="react_assets")
-    
-    @app.get("/r")
-    @app.get("/r/")
-    async def react_index():
-        """返回 React 首页"""
-        index_file = REACT_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(index_file)
-        return {"error": "React app not found"}
-    
-    @app.get("/r/{full_path:path}")
-    async def react_spa_fallback(full_path: str):
-        """React SPA 路由回退"""
-        # 先尝试返回静态文件
-        file_path = REACT_DIR / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
-        # 否则返回 index.html（SPA 路由）
-        index_file = REACT_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(index_file)
-        return {"error": "React app not found"}
-
-
-# ===========================================
-# Flutter Web 静态资源
-# ===========================================
-FLUTTER_DIR = Path("app/web/static/flutter")
-
-# 检查 Flutter 目录是否存在
-if FLUTTER_DIR.exists():
-    log.info(f"Flutter WebUI 目录存在: {FLUTTER_DIR}")
-    
-    # 挂载 Flutter 静态资源（JS、CSS、assets 等）
-    if (FLUTTER_DIR / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=FLUTTER_DIR / "assets"), name="flutter_assets")
-    if (FLUTTER_DIR / "canvaskit").exists():
-        app.mount("/canvaskit", StaticFiles(directory=FLUTTER_DIR / "canvaskit"), name="flutter_canvaskit")
-    
-    @app.get("/flutter.js")
-    async def flutter_js():
-        """返回 Flutter JS 引导文件"""
-        return FileResponse(FLUTTER_DIR / "flutter.js")
-    
-    @app.get("/flutter_service_worker.js")
-    async def flutter_service_worker():
-        """返回 Flutter Service Worker"""
-        return FileResponse(FLUTTER_DIR / "flutter_service_worker.js")
-    
-    @app.get("/main.dart.js")
-    async def flutter_main():
-        """返回 Flutter 主应用 JS"""
-        return FileResponse(FLUTTER_DIR / "main.dart.js")
-    
-    @app.get("/manifest.json")
-    async def flutter_manifest():
-        """返回 Flutter Web Manifest"""
-        return FileResponse(FLUTTER_DIR / "manifest.json", media_type="application/json")
-    
-    @app.get("/version.json")
-    async def flutter_version():
-        """返回 Flutter 版本信息"""
-        return FileResponse(FLUTTER_DIR / "version.json", media_type="application/json")
-
-
-# ===========================================
-# 默认前端选择
-# ===========================================
-# 通过环境变量选择默认前端：react 或 flutter
-DEFAULT_FRONTEND = os.environ.get("DEFAULT_FRONTEND", "react").lower()
-log.info(f"默认前端: {DEFAULT_FRONTEND}")
+        app.mount("/assets", StaticFiles(directory=REACT_DIR / "assets"), name="react_assets")
 
 
 # SPA Catch-all 路由：所有未匹配的路径都返回 index.html
@@ -182,10 +110,9 @@ log.info(f"默认前端: {DEFAULT_FRONTEND}")
 async def spa_fallback(request: Request, full_path: str):
     """
     SPA 路由回退
-    根据配置选择返回 React 或 Flutter 的 index.html
+    返回 React 的 index.html
     """
-    # 优先使用 React（如果配置为 react 且存在）
-    if DEFAULT_FRONTEND == "react" and REACT_DIR.exists():
+    if REACT_DIR.exists():
         # 先尝试返回静态文件
         file_path = REACT_DIR / full_path
         if file_path.exists() and file_path.is_file():
@@ -195,18 +122,9 @@ async def spa_fallback(request: Request, full_path: str):
         if index_file.exists():
             return FileResponse(index_file)
     
-    # 使用 Flutter
-    if FLUTTER_DIR.exists():
-        index_file = FLUTTER_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(index_file)
-    
-    # 都不存在时返回错误
-    log.error("No frontend app found")
-    return {"error": "Frontend app not found", "available": {
-        "react": REACT_DIR.exists(),
-        "flutter": FLUTTER_DIR.exists()
-    }}
+    # React 不存在时返回错误
+    log.error("React WebUI not found")
+    return {"error": "Frontend app not found"}
 
 
 log.info("FastAPI应用初始化完成")

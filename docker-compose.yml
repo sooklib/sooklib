@@ -20,8 +20,6 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
-      # 默认前端界面：react 或 flutter
-      - DEFAULT_FRONTEND=react
       # 默认管理员账户（首次启动时创建）
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=admin123
