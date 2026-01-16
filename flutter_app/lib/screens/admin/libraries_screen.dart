@@ -81,6 +81,214 @@ class _LibrariesScreenState extends State<LibrariesScreen> {
     }
   }
 
+  Future<void> _showCreateDialog() async {
+    final nameController = TextEditingController();
+    final pathController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('添加书库'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: '书库名称',
+                hintText: '例如：小说',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pathController,
+              decoration: const InputDecoration(
+                labelText: '书库路径',
+                hintText: '例如：/books/novels',
+                helperText: '服务器上的绝对路径',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && nameController.text.isNotEmpty && pathController.text.isNotEmpty) {
+      try {
+        await _adminService.createLibrary(
+          name: nameController.text,
+          path: pathController.text,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('书库创建成功')),
+          );
+          await _loadLibraries();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('创建失败: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showEditDialog(Map<String, dynamic> library) async {
+    final id = library['id'] as int;
+    final nameController = TextEditingController(text: library['name'] as String? ?? '');
+    final pathController = TextEditingController(text: library['path'] as String? ?? '');
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('编辑书库'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: '书库名称',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pathController,
+              decoration: const InputDecoration(
+                labelText: '书库路径',
+                helperText: '服务器上的绝对路径',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      try {
+        await _adminService.updateLibrary(
+          id,
+          name: nameController.text,
+          path: pathController.text,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('书库已更新')),
+          );
+          await _loadLibraries();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('更新失败: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showDeleteConfirmDialog(Map<String, dynamic> library) async {
+    final id = library['id'] as int;
+    final name = library['name'] as String? ?? '未命名书库';
+    final bookCount = library['book_count'] as int? ?? 0;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除书库'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('确定要删除书库 "$name" 吗？'),
+            if (bookCount > 0) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning, color: Colors.red, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '此书库包含 $bookCount 本书，删除后书籍记录也会被移除！',
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              '注意：此操作不会删除服务器上的实际文件。',
+              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _adminService.deleteLibrary(id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('书库 "$name" 已删除')),
+          );
+          await _loadLibraries();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('删除失败: $e')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,6 +304,11 @@ class _LibrariesScreenState extends State<LibrariesScreen> {
             onPressed: _loadLibraries,
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showCreateDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('添加书库'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -147,8 +360,14 @@ class _LibrariesScreenState extends State<LibrariesScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            '请在服务器端配置书库路径',
+            '点击右下角按钮添加书库',
             style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: _showCreateDialog,
+            icon: const Icon(Icons.add),
+            label: const Text('添加书库'),
           ),
         ],
       ),
@@ -199,6 +418,40 @@ class _LibrariesScreenState extends State<LibrariesScreen> {
                       ),
                     ],
                   ),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'edit':
+                        _showEditDialog(library);
+                        break;
+                      case 'delete':
+                        _showDeleteConfirmDialog(library);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit, size: 20),
+                          SizedBox(width: 8),
+                          Text('编辑'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete, size: 20, color: Colors.red),
+                          SizedBox(width: 8),
+                          Text('删除', style: TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
