@@ -101,24 +101,43 @@ class ChapterParseResult {
 ChapterParseResult _parseChaptersIsolate(String content) {
   final chapters = <Chapter>[];
   
-  // 增强的章节识别正则模式
+  // 增强的章节识别正则模式（按优先级排序）
   final patterns = [
-    // 中文章节：第X章/节/卷/部/回/集/篇
-    RegExp(r'^[　\s]*第[一二三四五六七八九十百千万零〇0-9]+[章节卷部回集篇][：:\s]*.{0,50}', multiLine: true),
-    // 带括号的章节：【第X章】
-    RegExp(r'^[　\s]*[【\[]第[一二三四五六七八九十百千万零〇0-9]+[章节卷部回集篇][】\]][：:\s]*.{0,50}', multiLine: true),
+    // === 高优先级：明确的章节标记 ===
+    
+    // 中文章节：第X章/节/卷/部/回/集/篇（带可选标题）
+    RegExp(r'^[　\s]*第[一二三四五六七八九十百千万零〇0-9１２３４５６７８９０]+[章节卷部回集篇幕话][　\s：:—\-]*.{0,60}$', multiLine: true),
+    
+    // 带括号的章节：【第X章】《第X章》「第X章」
+    RegExp(r'^[　\s]*[【\[《「]第[一二三四五六七八九十百千万零〇0-9１２３４５６７８９０]+[章节卷部回集篇][】\]》」][　\s：:]*.*$', multiLine: true),
+    
     // 序章、楔子、尾声等特殊章节
-    RegExp(r'^[　\s]*(序章|序言|楔子|引子|引言|前言|后记|尾声|番外|终章|完结)[：:\s]*.{0,50}', multiLine: true),
-    // 卷/部标题
-    RegExp(r'^[　\s]*[第卷]?[一二三四五六七八九十百千万零〇0-9]+[卷部][：:\s]*.{0,50}', multiLine: true),
-    // 英文 Chapter
-    RegExp(r'^[　\s]*Chapter\s+\d+[.:]?\s*.{0,50}', multiLine: true, caseSensitive: false),
-    // 英文 Part/Book
-    RegExp(r'^[　\s]*(Part|Book|Section|Episode)\s+\d+[.:]?\s*.{0,50}', multiLine: true, caseSensitive: false),
-    // 数字编号：1. 或 1、或 001
-    RegExp(r'^[　\s]*\d{1,4}[\.、][　\s]+\S.{0,50}', multiLine: true),
-    // 纯数字章节（较宽松）
-    RegExp(r'^[　\s]*第?\s*\d{1,4}\s*[章节回]\s*.{0,50}', multiLine: true),
+    RegExp(r'^[　\s]*(序章|序幕|序言|楔子|引子|引言|前言|前传|后记|后传|尾声|番外|番外篇|终章|终幕|完结|大结局|全文完)[　\s：:\d]*.*$', multiLine: true),
+    
+    // === 中优先级：常见格式 ===
+    
+    // 英文 Chapter/Part/Book/Episode/Volume
+    RegExp(r'^[　\s]*(Chapter|Part|Book|Section|Episode|Volume|Prologue|Epilogue)\s*[:\-]?\s*\d*[　\s:.\-]*.*$', multiLine: true, caseSensitive: false),
+    
+    // 纯数字编号格式：1. xxx 或 1、xxx 或 001 xxx
+    RegExp(r'^[　\s]*(\d{1,4})[\.、\s]\s*[\u4e00-\u9fa5].{2,50}$', multiLine: true),
+    
+    // 中文数字编号：一、xxx 二、xxx
+    RegExp(r'^[　\s]*[一二三四五六七八九十百]+[、\.][　\s]*.{2,50}$', multiLine: true),
+    
+    // 卷/部标题（独立）
+    RegExp(r'^[　\s]*(卷|部|篇|册)[一二三四五六七八九十百千万零〇0-9]+[　\s：:].{0,50}$', multiLine: true),
+    
+    // === 低优先级：宽松匹配 ===
+    
+    // 更宽松的"第X章"格式
+    RegExp(r'^[　\s]*第\s*[0-9]+\s*[章节回话].{0,60}$', multiLine: true),
+    
+    // 带分隔线的章节标题
+    RegExp(r'^[　\s]*[-=_]{3,}[　\s]*[\u4e00-\u9fa5].{2,30}[　\s]*[-=_]{3,}[　\s]*$', multiLine: true),
+    
+    // 章节标题单独一行（短标题，中文开头）
+    RegExp(r'^[　\s]*(第[一二三四五六七八九十百千万零〇0-9]+[章节回])[　\s]*$', multiLine: true),
   ];
   
   // 收集所有匹配的章节
