@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/book_provider.dart';
+import 'providers/dashboard_provider.dart';
 import 'screens/login_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/book_detail_screen.dart';
@@ -27,6 +29,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => BookProvider()),
+        ChangeNotifierProvider(create: (_) => DashboardProvider()),
       ],
       child: Consumer2<AuthProvider, ThemeProvider>(
         builder: (context, authProvider, themeProvider, _) {
@@ -67,6 +70,10 @@ class MyApp extends StatelessWidget {
         ),
         GoRoute(
           path: '/home',
+          builder: (context, state) => const DashboardScreen(),  // 使用 Emby 风格首页
+        ),
+        GoRoute(
+          path: '/home-old',  // 保留旧版首页
           builder: (context, state) => const HomeScreen(),
         ),
         GoRoute(
