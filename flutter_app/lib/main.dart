@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
@@ -22,6 +23,8 @@ import 'screens/admin/libraries_screen.dart';
 import 'screens/admin/users_screen.dart';
 
 void main() {
+  // 使用路径URL策略（不带#的干净URL）
+  usePathUrlStrategy();
   runApp(const MyApp());
 }
 
