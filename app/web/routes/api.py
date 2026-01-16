@@ -603,7 +603,7 @@ async def update_progress(
     current_user: User = Depends(get_current_user)
 ):
     """更新阅读进度（需要有书籍访问权限）"""
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     # 查找现有进度
     result = await db.execute(
@@ -613,12 +613,14 @@ async def update_progress(
     )
     progress = result.scalar_one_or_none()
     
+    now = datetime.now(timezone.utc)  # 使用带时区的UTC时间
+    
     if progress:
         # 更新现有进度
         progress.progress = progress_data.progress
         progress.position = progress_data.position
         progress.finished = progress_data.finished
-        progress.last_read_at = datetime.utcnow()  # 更新最后阅读时间
+        progress.last_read_at = now
     else:
         # 创建新进度
         progress = ReadingProgress(
@@ -627,7 +629,7 @@ async def update_progress(
             progress=progress_data.progress,
             position=progress_data.position,
             finished=progress_data.finished,
-            last_read_at=datetime.utcnow(),  # 设置最后阅读时间
+            last_read_at=now,
         )
         db.add(progress)
     

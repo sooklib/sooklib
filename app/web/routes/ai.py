@@ -8,13 +8,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import get_db
 from app.web.routes.admin import admin_required
-from app.web.routes.dependencies import get_db
 from app.core.ai.config import ai_config
 from app.core.ai.service import get_ai_service
-from app.models import FilenamePattern, Library, BookVersion
+from app.models import FilenamePattern, Library, BookVersion, Book, Author
 
 
 router = APIRouter(prefix="/api/admin/ai", tags=["AI管理"])
@@ -209,21 +210,25 @@ class PatternUpdate(BaseModel):
 async def list_patterns(
     library_id: Optional[int] = None,
     active_only: bool = False,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """获取所有文件名规则"""
-    query = db.query(FilenamePattern)
+    from sqlalchemy import or_
+    
+    query = select(FilenamePattern)
     
     if library_id:
-        query = query.filter(
-            (FilenamePattern.library_id == library_id) | (FilenamePattern.library_id == None)
+        query = query.where(
+            or_(FilenamePattern.library_id == library_id, FilenamePattern.library_id == None)
         )
     
     if active_only:
-        query = query.filter(FilenamePattern.is_active == True)
+        query = query.where(FilenamePattern.is_active == True)
     
-    patterns = query.order_by(FilenamePattern.priority.desc()).all()
+    query = query.order_by(FilenamePattern.priority.desc())
+    result = await db.execute(query)
+    patterns = result.scalars().all()
     
     return [{
         "id": p.id,
@@ -249,7 +254,7 @@ async def list_patterns(
 @router.post("/patterns")
 async def create_pattern(
     data: PatternCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """创建文件名规则"""
@@ -289,8 +294,8 @@ async def create_pattern(
     )
     
     db.add(pattern)
-    db.commit()
-    db.refresh(pattern)
+    await db.commit()
+    await db.refresh(pattern)
     
     return {
         "id": pattern.id,
@@ -304,11 +309,12 @@ async def create_pattern(
 async def update_pattern(
     pattern_id: int,
     data: PatternUpdate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """更新文件名规则"""
-    pattern = db.query(FilenamePattern).filter(FilenamePattern.id == pattern_id).first()
+    result = await db.execute(select(FilenamePattern).where(FilenamePattern.id == pattern_id))
+    pattern = result.scalar_one_or_none()
     if not pattern:
         raise HTTPException(404, "规则不存在")
     
@@ -342,7 +348,7 @@ async def update_pattern(
             }
             pattern.example_result = json.dumps(example_result, ensure_ascii=False)
     
-    db.commit()
+    await db.commit()
     
     return {"message": "规则更新成功"}
 
@@ -350,16 +356,17 @@ async def update_pattern(
 @router.delete("/patterns/{pattern_id}")
 async def delete_pattern(
     pattern_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """删除文件名规则"""
-    pattern = db.query(FilenamePattern).filter(FilenamePattern.id == pattern_id).first()
+    result = await db.execute(select(FilenamePattern).where(FilenamePattern.id == pattern_id))
+    pattern = result.scalar_one_or_none()
     if not pattern:
         raise HTTPException(404, "规则不存在")
     
-    db.delete(pattern)
-    db.commit()
+    await db.delete(pattern)
+    await db.commit()
     
     return {"message": "规则删除成功"}
 
@@ -402,20 +409,23 @@ async def test_pattern(
 async def analyze_library_patterns(
     library_id: int,
     use_ai: bool = True,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """分析书库文件名模式"""
-    library = db.query(Library).filter(Library.id == library_id).first()
+    result = await db.execute(select(Library).where(Library.id == library_id))
+    library = result.scalar_one_or_none()
     if not library:
         raise HTTPException(404, "书库不存在")
     
     # 获取书库中的所有文件名
-    versions = db.query(BookVersion).join(
-        BookVersion.book
-    ).filter(
-        BookVersion.book.has(library_id=library_id)
-    ).all()
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(BookVersion).options(selectinload(BookVersion.book))
+        .join(Book)
+        .where(Book.library_id == library_id)
+    )
+    versions = result.scalars().all()
     
     if not versions:
         return {"success": False, "error": "书库中没有书籍"}
@@ -425,17 +435,20 @@ async def analyze_library_patterns(
     if use_ai and ai_config.is_enabled():
         # 使用AI分析
         service = get_ai_service()
-        result = await service.analyze_filename_patterns(filenames)
+        ai_result = await service.analyze_filename_patterns(filenames)
         
-        if result.get("success"):
+        if ai_result.get("success"):
             # 可选：自动创建规则
             patterns_created = []
-            for pattern_data in result.get("patterns", []):
+            for pattern_data in ai_result.get("patterns", []):
                 if pattern_data.get("confidence", 0) >= 0.7:
                     # 检查规则是否已存在
-                    existing = db.query(FilenamePattern).filter(
-                        FilenamePattern.regex_pattern == pattern_data.get("regex")
-                    ).first()
+                    check = await db.execute(
+                        select(FilenamePattern).where(
+                            FilenamePattern.regex_pattern == pattern_data.get("regex")
+                        )
+                    )
+                    existing = check.scalar_one_or_none()
                     
                     if not existing:
                         pattern = FilenamePattern(
@@ -453,24 +466,24 @@ async def analyze_library_patterns(
                         patterns_created.append(pattern_data.get("name"))
             
             if patterns_created:
-                db.commit()
+                await db.commit()
             
-            result["patterns_created"] = patterns_created
+            ai_result["patterns_created"] = patterns_created
         
-        return result
+        return ai_result
     else:
         # 使用传统分析
         from app.utils.filename_analyzer import FilenameAnalyzer
         analyzer = FilenameAnalyzer()
-        result = analyzer.analyze_filenames(filenames)
-        result["ai_used"] = False
-        return result
+        analyze_result = analyzer.analyze_filenames(filenames)
+        analyze_result["ai_used"] = False
+        return analyze_result
 
 
 @router.post("/patterns/suggest")
 async def suggest_pattern_for_filename(
     filename: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """为单个文件名建议规则"""
@@ -478,16 +491,20 @@ async def suggest_pattern_for_filename(
         raise HTTPException(400, "AI功能未启用")
     
     # 获取现有规则
-    existing_patterns = db.query(FilenamePattern).filter(
-        FilenamePattern.is_active == True
-    ).order_by(FilenamePattern.priority.desc()).limit(5).all()
+    result = await db.execute(
+        select(FilenamePattern)
+        .where(FilenamePattern.is_active == True)
+        .order_by(FilenamePattern.priority.desc())
+        .limit(5)
+    )
+    existing_patterns = result.scalars().all()
     
     existing = [{"name": p.name, "regex": p.regex_pattern} for p in existing_patterns]
     
     service = get_ai_service()
-    result = await service.suggest_pattern_for_filename(filename, existing)
+    suggest_result = await service.suggest_pattern_for_filename(filename, existing)
     
-    return result
+    return suggest_result
 
 
 @router.post("/patterns/batch-analyze-library/{library_id}")
@@ -495,7 +512,7 @@ async def batch_analyze_library(
     library_id: int,
     batch_size: int = 1000,
     apply_results: bool = False,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """
@@ -509,17 +526,19 @@ async def batch_analyze_library(
     if not ai_config.is_enabled():
         raise HTTPException(400, "AI功能未启用")
     
-    library = db.query(Library).filter(Library.id == library_id).first()
+    lib_result = await db.execute(select(Library).where(Library.id == library_id))
+    library = lib_result.scalar_one_or_none()
     if not library:
         raise HTTPException(404, "书库不存在")
     
     # 获取所有文件名
-    from app.models import Book, Author
-    versions = db.query(BookVersion).join(
-        BookVersion.book
-    ).filter(
-        BookVersion.book.has(library_id=library_id)
-    ).all()
+    from sqlalchemy.orm import selectinload
+    version_result = await db.execute(
+        select(BookVersion).options(
+            selectinload(BookVersion.book).selectinload(Book.author)
+        ).join(Book).where(Book.library_id == library_id)
+    )
+    versions = version_result.scalars().all()
     
     if not versions:
         return {"success": False, "error": "书库中没有书籍"}
@@ -557,11 +576,12 @@ async def batch_analyze_library(
             if book_info.get("author"):
                 author_name = book_info["author"].strip()
                 # 查找或创建作者
-                author = db.query(Author).filter(Author.name == author_name).first()
+                author_result = await db.execute(select(Author).where(Author.name == author_name))
+                author = author_result.scalar_one_or_none()
                 if not author:
                     author = Author(name=author_name)
                     db.add(author)
-                    db.flush()
+                    await db.flush()
                 book.author_id = author.id
             
             # 如果有点评/评价，添加到简介
@@ -576,7 +596,7 @@ async def batch_analyze_library(
                     book.description = f"【读者评价】{review_text}"
                     reviews_added += 1
         
-        db.commit()
+        await db.commit()
     
     # 保存生成的规则
     patterns_created = []
@@ -586,9 +606,10 @@ async def batch_analyze_library(
             continue
         
         # 检查规则是否已存在
-        existing = db.query(FilenamePattern).filter(
-            FilenamePattern.regex_pattern == regex
-        ).first()
+        check_result = await db.execute(
+            select(FilenamePattern).where(FilenamePattern.regex_pattern == regex)
+        )
+        existing = check_result.scalar_one_or_none()
         
         if not existing:
             try:
@@ -611,7 +632,7 @@ async def batch_analyze_library(
                 pass
     
     if patterns_created:
-        db.commit()
+        await db.commit()
     
     result["patterns_created"] = patterns_created
     result["applied_count"] = applied_count
@@ -629,19 +650,26 @@ async def batch_analyze_library(
 async def batch_apply_patterns(
     library_id: int,
     dry_run: bool = True,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     admin = Depends(admin_required)
 ):
     """批量应用规则到书库（重新解析文件名）"""
-    library = db.query(Library).filter(Library.id == library_id).first()
+    from sqlalchemy import or_
+    from sqlalchemy.orm import selectinload
+    
+    lib_result = await db.execute(select(Library).where(Library.id == library_id))
+    library = lib_result.scalar_one_or_none()
     if not library:
         raise HTTPException(404, "书库不存在")
     
     # 获取规则
-    patterns = db.query(FilenamePattern).filter(
-        FilenamePattern.is_active == True,
-        (FilenamePattern.library_id == library_id) | (FilenamePattern.library_id == None)
-    ).order_by(FilenamePattern.priority.desc()).all()
+    patterns_result = await db.execute(
+        select(FilenamePattern).where(
+            FilenamePattern.is_active == True,
+            or_(FilenamePattern.library_id == library_id, FilenamePattern.library_id == None)
+        ).order_by(FilenamePattern.priority.desc())
+    )
+    patterns = patterns_result.scalars().all()
     
     if not patterns:
         return {"success": False, "error": "没有可用规则"}
@@ -658,12 +686,12 @@ async def batch_apply_patterns(
             pass
     
     # 获取所有书籍版本
-    from app.models import Book
-    versions = db.query(BookVersion).join(
-        BookVersion.book
-    ).filter(
-        BookVersion.book.has(library_id=library_id)
-    ).all()
+    versions_result = await db.execute(
+        select(BookVersion).options(
+            selectinload(BookVersion.book).selectinload(Book.author)
+        ).join(Book).where(Book.library_id == library_id)
+    )
+    versions = versions_result.scalars().all()
     
     results = {
         "total": len(versions),
@@ -674,12 +702,10 @@ async def batch_apply_patterns(
     
     for version in versions:
         filename = version.file_name
-        matched = False
         
         for cp in compiled_patterns:
             match = cp["compiled"].match(filename)
             if match:
-                matched = True
                 groups = match.groups()
                 p = cp["pattern"]
                 
@@ -711,7 +737,7 @@ async def batch_apply_patterns(
                 break
     
     if not dry_run:
-        db.commit()
+        await db.commit()
     
     # 限制返回详情数量
     if len(results["details"]) > 50:
