@@ -89,6 +89,15 @@ class StorageService {
     return _prefs?.getString('theme_mode');
   }
 
+  // 主题色存储
+  Future<void> saveSeedColor(int colorValue) async {
+    await _prefs?.setInt('seed_color', colorValue);
+  }
+
+  Future<int?> getSeedColor() async {
+    return _prefs?.getInt('seed_color');
+  }
+
   // 记住密码
   Future<void> saveRememberMe(bool value) async {
     await _prefs?.setBool('remember_me', value);

@@ -32,6 +32,10 @@ dependencies:
   # 图片加载
   cached_network_image: ^3.3.1
   
+  # 主题色提取
+  palette_generator: ^0.3.3+4
+  dynamic_color: ^1.7.0
+  
   # 工具类
   intl: ^0.19.0
   logger: ^2.0.2+1

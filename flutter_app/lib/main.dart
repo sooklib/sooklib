@@ -14,6 +14,7 @@ import 'screens/book_detail_screen.dart';
 import 'screens/reader_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/settings_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -106,6 +107,10 @@ class MyApp extends StatelessWidget {
         GoRoute(
           path: '/profile',
           builder: (context, state) => const ProfileScreen(),
+        ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsScreen(),
         ),
       ],
     );

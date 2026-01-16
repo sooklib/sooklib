@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:palette_generator/palette_generator.dart';
 import '../models/book.dart';
 import '../services/book_service.dart';
 import '../services/api_client.dart';
@@ -27,6 +28,10 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   String? _errorMessage;
   bool _isFavorite = false;
   double? _readingProgress;
+  
+  // 动态背景色
+  Color? _dominantColor;
+  Color? _vibrantColor;
 
   @override
   void initState() {
@@ -56,11 +61,39 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
         _book = book;
         _isLoading = false;
       });
+      
+      // 异步提取封面颜色
+      _extractCoverColors();
     } catch (e) {
       setState(() {
         _errorMessage = '加载失败: ${e.toString()}';
         _isLoading = false;
       });
+    }
+  }
+
+  /// 从封面提取主色调
+  Future<void> _extractCoverColors() async {
+    if (_book == null) return;
+    
+    final coverUrl = '${ApiConfig.baseUrl}/books/${_book!.id}/cover?size=thumbnail';
+    
+    try {
+      final paletteGenerator = await PaletteGenerator.fromImageProvider(
+        NetworkImage(coverUrl),
+        size: const Size(100, 150), // 缩小图片加快处理
+        maximumColorCount: 16,
+      );
+      
+      if (mounted) {
+        setState(() {
+          _dominantColor = paletteGenerator.dominantColor?.color;
+          _vibrantColor = paletteGenerator.vibrantColor?.color ??
+                          paletteGenerator.mutedColor?.color;
+        });
+      }
+    } catch (e) {
+      debugPrint('提取封面颜色失败: $e');
     }
   }
 
@@ -132,6 +165,25 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
     );
   }
 
+  /// 获取背景渐变色
+  List<Color> _getBackgroundGradient() {
+    final scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
+    
+    if (_dominantColor != null) {
+      return [
+        _dominantColor!.withOpacity(0.8),
+        _vibrantColor?.withOpacity(0.4) ?? _dominantColor!.withOpacity(0.3),
+        scaffoldBg,
+      ];
+    }
+    
+    // 默认颜色
+    return [
+      Colors.grey[900]!,
+      scaffoldBg,
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -168,208 +220,228 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
 
     return CustomScrollView(
       slivers: [
-        // 顶部AppBar with背景
+        // 顶部AppBar with动态背景色
         SliverAppBar(
-          expandedHeight: 300,
+          expandedHeight: 320,
           pinned: true,
           flexibleSpace: FlexibleSpaceBar(
-            background: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 背景模糊封面
-                ColorFiltered(
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.6),
-                    BlendMode.darken,
-                  ),
-                  child: Image.network(
-                    coverUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(color: Colors.grey[900]),
-                  ),
+            background: AnimatedContainer(
+              duration: const Duration(milliseconds: 500),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: _getBackgroundGradient(),
                 ),
-                // 前景封面
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 80),
-                    width: 150,
-                    height: 200,
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.5),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        coverUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          color: Colors.grey[800],
-                          child: const Icon(Icons.menu_book, size: 64),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 前景封面
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 70),
+                      width: 150,
+                      height: 210,
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_dominantColor ?? Colors.black).withOpacity(0.5),
+                            blurRadius: 25,
+                            offset: const Offset(0, 15),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          coverUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: Colors.grey[800],
+                            child: const Icon(Icons.menu_book, size: 64),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
 
-        // 内容
+        // 内容区域 - 带渐变背景
         SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 标题
-                Text(
-                  _book!.title,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _dominantColor?.withOpacity(0.15) ?? Colors.transparent,
+                  Theme.of(context).scaffoldBackgroundColor,
+                ],
+                stops: const [0.0, 0.3],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 标题
+                  Text(
+                    _book!.title,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 8),
 
-                // 作者
-                if (_book!.authorName != null)
-                  Row(
-                    children: [
-                      Icon(Icons.person, size: 16, color: Colors.grey[400]),
-                      const SizedBox(width: 4),
-                      Text(
-                        _book!.authorName!,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey[400],
+                  // 作者
+                  if (_book!.authorName != null)
+                    Row(
+                      children: [
+                        Icon(Icons.person, size: 16, color: Colors.grey[400]),
+                        const SizedBox(width: 4),
+                        Text(
+                          _book!.authorName!,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[400],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
 
-                // 阅读进度
-                if (_readingProgress != null && _readingProgress! > 0) ...[
-                  const SizedBox(height: 12),
+                  // 阅读进度
+                  if (_readingProgress != null && _readingProgress! > 0) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: LinearProgressIndicator(
+                            value: _readingProgress,
+                            backgroundColor: Colors.grey[800],
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              _vibrantColor ?? Theme.of(context).primaryColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${(_readingProgress! * 100).toInt()}%',
+                          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 16),
+
+                  // 操作按钮 - 使用提取的颜色
                   Row(
                     children: [
                       Expanded(
-                        child: LinearProgressIndicator(
-                          value: _readingProgress,
-                          backgroundColor: Colors.grey[800],
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Theme.of(context).primaryColor,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            context.push('/reader/${_book!.id}');
+                          },
+                          icon: Icon(
+                            _readingProgress != null && _readingProgress! > 0
+                                ? Icons.play_arrow
+                                : Icons.auto_stories,
+                          ),
+                          label: Text(
+                            _readingProgress != null && _readingProgress! > 0
+                                ? '继续阅读'
+                                : '开始阅读',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            backgroundColor: _vibrantColor ?? Theme.of(context).primaryColor,
+                            foregroundColor: Colors.white,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${(_readingProgress! * 100).toInt()}%',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                      const SizedBox(width: 12),
+                      IconButton.filled(
+                        onPressed: _toggleFavorite,
+                        icon: Icon(
+                          _isFavorite ? Icons.favorite : Icons.favorite_border,
+                        ),
+                        tooltip: '收藏',
+                        style: IconButton.styleFrom(
+                          backgroundColor: _dominantColor?.withOpacity(0.3),
+                        ),
+                      ),
+                      IconButton.filled(
+                        onPressed: _downloadBook,
+                        icon: const Icon(Icons.download),
+                        tooltip: '下载',
+                        style: IconButton.styleFrom(
+                          backgroundColor: _dominantColor?.withOpacity(0.3),
+                        ),
                       ),
                     ],
                   ),
-                ],
 
-                const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
-                // 操作按钮
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          context.push('/reader/${_book!.id}');
-                        },
-                        icon: Icon(
-                          _readingProgress != null && _readingProgress! > 0
-                              ? Icons.play_arrow
-                              : Icons.auto_stories,
-                        ),
-                        label: Text(
-                          _readingProgress != null && _readingProgress! > 0
-                              ? '继续阅读'
-                              : '开始阅读',
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
+                  // 基本信息
+                  _buildInfoSection(),
+
+                  const SizedBox(height: 24),
+
+                  // 标签
+                  if (_book!.tags.isNotEmpty) ...[
+                    const Text(
+                      '标签',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    IconButton.filled(
-                      onPressed: _toggleFavorite,
-                      icon: Icon(
-                        _isFavorite ? Icons.favorite : Icons.favorite_border,
-                      ),
-                      tooltip: '收藏',
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _book!.tags
+                          .map((tag) => Chip(
+                                label: Text(tag),
+                                backgroundColor: _dominantColor?.withOpacity(0.2) ?? 
+                                                 Colors.grey[800],
+                              ))
+                          .toList(),
                     ),
-                    IconButton.filled(
-                      onPressed: _downloadBook,
-                      icon: const Icon(Icons.download),
-                      tooltip: '下载',
+                    const SizedBox(height: 24),
+                  ],
+
+                  // 简介
+                  if (_book!.description != null && _book!.description!.isNotEmpty) ...[
+                    const Text(
+                      '简介',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _book!.description!,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[300],
+                        height: 1.6,
+                      ),
                     ),
                   ],
-                ),
 
-                const SizedBox(height: 24),
-
-                // 基本信息
-                _buildInfoSection(),
-
-                const SizedBox(height: 24),
-
-                // 标签
-                if (_book!.tags.isNotEmpty) ...[
-                  const Text(
-                    '标签',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _book!.tags
-                        .map((tag) => Chip(
-                              label: Text(tag),
-                              backgroundColor: Colors.grey[800],
-                            ))
-                        .toList(),
-                  ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 80), // 底部留白
                 ],
-
-                // 简介
-                if (_book!.description != null && _book!.description!.isNotEmpty) ...[
-                  const Text(
-                    '简介',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _book!.description!,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[300],
-                      height: 1.6,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 80), // 底部留白
-              ],
+              ),
             ),
           ),
         ),
@@ -379,6 +451,7 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
 
   Widget _buildInfoSection() {
     return Card(
+      color: _dominantColor?.withOpacity(0.1),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
