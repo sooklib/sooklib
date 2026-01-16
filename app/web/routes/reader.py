@@ -114,21 +114,30 @@ async def download_book(
 
 @router.get("/books/{book_id}/cover")
 async def get_book_cover(
-    book: Book = Depends(get_accessible_book),
-    current_user: User = Depends(get_current_user),
+    book_id: int,
     size: str = Query("original", regex="^(original|thumbnail)$"),
     style: str = Query("gradient", regex="^(gradient|letter|book|minimal)$"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     获取书籍封面
-    需要有书籍访问权限
+    公开访问（封面不是敏感数据）
     
     参数:
     - size: original(原图) 或 thumbnail(缩略图)
     - style: 默认封面风格 (gradient/letter/book/minimal)
     """
     from app.utils.cover_manager import cover_manager
+    from sqlalchemy.orm import selectinload
+    
+    # 获取书籍
+    result = await db.execute(
+        select(Book).options(selectinload(Book.author)).where(Book.id == book_id)
+    )
+    book = result.scalar_one_or_none()
+    
+    if not book:
+        raise HTTPException(status_code=404, detail="书籍不存在")
     
     # 如果有封面路径，返回封面
     if book.cover_path:
