@@ -77,13 +77,14 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   Future<void> _extractCoverColors() async {
     if (_book == null) return;
     
-    final coverUrl = '${ApiConfig.baseUrl}/books/${_book!.id}/cover?size=thumbnail';
+    final coverUrl = '${ApiConfig.baseUrl}/books/${_book!.id}/cover';
     
     try {
       final paletteGenerator = await PaletteGenerator.fromImageProvider(
         NetworkImage(coverUrl),
         size: const Size(100, 150), // 缩小图片加快处理
         maximumColorCount: 16,
+        timeout: const Duration(seconds: 10),
       );
       
       if (mounted) {
@@ -95,6 +96,15 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
       }
     } catch (e) {
       debugPrint('提取封面颜色失败: $e');
+      // 使用基于标题的备用颜色
+      if (mounted && _book != null) {
+        final hash = _book!.title.hashCode;
+        final hue = (hash % 360).abs().toDouble();
+        setState(() {
+          _dominantColor = HSLColor.fromAHSL(1.0, hue, 0.4, 0.25).toColor();
+          _vibrantColor = HSLColor.fromAHSL(1.0, hue, 0.6, 0.4).toColor();
+        });
+      }
     }
   }
 
