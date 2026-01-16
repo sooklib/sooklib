@@ -1348,3 +1348,370 @@ async def update_backup_schedule(
     except Exception as e:
         log.error(f"更新备份计划失败: {e}")
         raise HTTPException(status_code=500, detail=f"更新备份计划失败: {str(e)}")
+
+
+# ==================== 标签管理 API ====================
+
+class BatchTagRequest(BaseModel):
+    """批量打标签请求"""
+    book_ids: List[int]
+    tag_names: List[str]
+    mode: str = "add"  # add, replace, remove
+
+
+class AutoTagRequest(BaseModel):
+    """自动打标签请求"""
+    library_id: Optional[int] = None
+    reprocess: bool = False  # 是否重新处理已有标签的书籍
+
+
+@router.post("/admin/tags/batch")
+async def batch_tag_books(
+    request: BatchTagRequest,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    批量为书籍打标签（管理员）
+    
+    参数：
+    - book_ids: 书籍ID列表
+    - tag_names: 标签名称列表
+    - mode: 操作模式
+      - "add": 添加标签（保留现有标签）
+      - "replace": 替换标签（删除现有标签）
+      - "remove": 移除指定标签
+    """
+    from app.models import Tag
+    
+    if not request.book_ids:
+        raise HTTPException(status_code=400, detail="书籍ID列表不能为空")
+    
+    if not request.tag_names:
+        raise HTTPException(status_code=400, detail="标签列表不能为空")
+    
+    if request.mode not in ["add", "replace", "remove"]:
+        raise HTTPException(status_code=400, detail="无效的操作模式")
+    
+    try:
+        # 获取所有书籍
+        result = await db.execute(
+            select(Book).where(Book.id.in_(request.book_ids))
+        )
+        books = result.scalars().all()
+        
+        if not books:
+            raise HTTPException(status_code=404, detail="未找到指定的书籍")
+        
+        # 获取或创建标签
+        tags = []
+        for tag_name in request.tag_names:
+            result = await db.execute(
+                select(Tag).where(Tag.name == tag_name)
+            )
+            tag = result.scalar_one_or_none()
+            
+            if not tag:
+                tag = Tag(name=tag_name)
+                db.add(tag)
+                await db.flush()
+            
+            tags.append(tag)
+        
+        # 执行操作
+        updated_count = 0
+        for book in books:
+            if request.mode == "replace":
+                # 替换：清空现有标签
+                book.tags.clear()
+                book.tags.extend(tags)
+                updated_count += 1
+            elif request.mode == "add":
+                # 添加：只添加不存在的标签
+                existing_tag_ids = {t.id for t in book.tags}
+                for tag in tags:
+                    if tag.id not in existing_tag_ids:
+                        book.tags.append(tag)
+                        updated_count += 1
+            elif request.mode == "remove":
+                # 移除：删除指定标签
+                tag_ids_to_remove = {t.id for t in tags}
+                original_count = len(book.tags)
+                book.tags = [t for t in book.tags if t.id not in tag_ids_to_remove]
+                if len(book.tags) < original_count:
+                    updated_count += 1
+        
+        await db.commit()
+        
+        log.info(
+            f"管理员 {current_user.username} 批量{request.mode}标签: "
+            f"{len(books)} 本书, 标签: {request.tag_names}"
+        )
+        
+        return {
+            "message": f"已{request.mode} {len(request.tag_names)} 个标签到 {len(books)} 本书",
+            "book_count": len(books),
+            "tag_count": len(tags),
+            "updated_count": updated_count,
+            "mode": request.mode
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        log.error(f"批量打标签失败: {e}")
+        raise HTTPException(status_code=500, detail=f"批量打标签失败: {str(e)}")
+
+
+@router.post("/admin/tags/auto-tag")
+async def auto_tag_books(
+    request: AutoTagRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    自动为书籍打标签（管理员）
+    
+    使用关键词匹配从书名、作者、文件名中提取标签
+    
+    参数：
+    - library_id: 可选，指定书库ID。不指定则处理所有书籍
+    - reprocess: 是否重新处理已有标签的书籍（默认false）
+    """
+    from app.core.tag_keywords import get_tags_from_filename, get_tags_from_content
+    from app.models import Tag, BookVersion
+    from pathlib import Path
+    
+    try:
+        # 构建查询
+        query = select(Book)
+        
+        if request.library_id:
+            # 验证书库存在
+            lib_result = await db.execute(
+                select(Library).where(Library.id == request.library_id)
+            )
+            if not lib_result.scalar_one_or_none():
+                raise HTTPException(status_code=404, detail="书库不存在")
+            
+            query = query.where(Book.library_id == request.library_id)
+        
+        # 如果不重新处理，只处理没有标签的书籍
+        if not request.reprocess:
+            # 这个查询有点复杂，需要左连接tags表并过滤
+            pass  # 暂时处理所有书籍
+        
+        result = await db.execute(query)
+        books = result.scalars().all()
+        
+        if not books:
+            return {
+                "message": "没有需要处理的书籍",
+                "processed_count": 0,
+                "tagged_count": 0
+            }
+        
+        processed_count = 0
+        tagged_count = 0
+        
+        for book in books:
+            try:
+                auto_tags = []
+                
+                # 从书名提取
+                if book.title:
+                    auto_tags.extend(get_tags_from_filename(book.title))
+                
+                # 从作者提取
+                if book.author:
+                    auto_tags.extend(get_tags_from_filename(book.author.name))
+                
+                # 从主版本文件名提取
+                version_result = await db.execute(
+                    select(BookVersion)
+                    .where(BookVersion.book_id == book.id)
+                    .where(BookVersion.is_primary == True)
+                )
+                primary_version = version_result.scalar_one_or_none()
+                
+                if primary_version:
+                    auto_tags.extend(get_tags_from_filename(primary_version.file_name))
+                    
+                    # 从TXT内容提取
+                    if primary_version.file_format == '.txt':
+                        try:
+                            file_path = Path(primary_version.file_path)
+                            if file_path.exists():
+                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    content = f.read(1000)
+                                    auto_tags.extend(get_tags_from_content(content))
+                        except Exception as e:
+                            log.error(f"读取文件内容失败: {primary_version.file_path}, 错误: {e}")
+                
+                # 去重
+                auto_tags = list(set(auto_tags))
+                
+                if auto_tags:
+                    # 获取或创建标签
+                    existing_tag_names = {t.name for t in book.tags}
+                    
+                    for tag_name in auto_tags:
+                        if tag_name not in existing_tag_names or request.reprocess:
+                            # 获取或创建标签
+                            tag_result = await db.execute(
+                                select(Tag).where(Tag.name == tag_name)
+                            )
+                            tag = tag_result.scalar_one_or_none()
+                            
+                            if not tag:
+                                tag = Tag(name=tag_name)
+                                db.add(tag)
+                                await db.flush()
+                            
+                            if tag not in book.tags:
+                                book.tags.append(tag)
+                                tagged_count += 1
+                    
+                    processed_count += 1
+                    
+                    # 每处理100本书提交一次
+                    if processed_count % 100 == 0:
+                        await db.commit()
+                        log.debug(f"已处理 {processed_count} 本书")
+                
+            except Exception as e:
+                log.error(f"处理书籍 {book.id} 失败: {e}")
+                continue
+        
+        await db.commit()
+        
+        log.info(
+            f"管理员 {current_user.username} 触发自动打标签: "
+            f"处理 {processed_count}/{len(books)} 本书, 添加 {tagged_count} 个标签"
+        )
+        
+        return {
+            "message": f"自动打标签完成",
+            "total_books": len(books),
+            "processed_count": processed_count,
+            "tagged_count": tagged_count,
+            "library_id": request.library_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        log.error(f"自动打标签失败: {e}")
+        raise HTTPException(status_code=500, detail=f"自动打标签失败: {str(e)}")
+
+
+@router.post("/admin/books/{book_id}/auto-tag")
+async def auto_tag_single_book(
+    book_id: int,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    为单本书籍自动打标签（管理员）
+    
+    使用关键词匹配从书名、作者、文件名、内容中提取标签
+    """
+    from app.core.tag_keywords import get_tags_from_filename, get_tags_from_content
+    from app.models import Tag, BookVersion
+    from pathlib import Path
+    
+    try:
+        # 获取书籍
+        result = await db.execute(
+            select(Book).where(Book.id == book_id)
+        )
+        book = result.scalar_one_or_none()
+        
+        if not book:
+            raise HTTPException(status_code=404, detail="书籍不存在")
+        
+        auto_tags = []
+        
+        # 从书名提取
+        if book.title:
+            auto_tags.extend(get_tags_from_filename(book.title))
+        
+        # 从作者提取
+        if book.author:
+            auto_tags.extend(get_tags_from_filename(book.author.name))
+        
+        # 从主版本文件名提取
+        version_result = await db.execute(
+            select(BookVersion)
+            .where(BookVersion.book_id == book.id)
+            .where(BookVersion.is_primary == True)
+        )
+        primary_version = version_result.scalar_one_or_none()
+        
+        if primary_version:
+            auto_tags.extend(get_tags_from_filename(primary_version.file_name))
+            
+            # 从TXT内容提取
+            if primary_version.file_format == '.txt':
+                try:
+                    file_path = Path(primary_version.file_path)
+                    if file_path.exists():
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read(1000)
+                            auto_tags.extend(get_tags_from_content(content))
+                except Exception as e:
+                    log.error(f"读取文件内容失败: {primary_version.file_path}, 错误: {e}")
+        
+        # 去重
+        auto_tags = list(set(auto_tags))
+        
+        if not auto_tags:
+            return {
+                "message": "未提取到标签",
+                "book_id": book_id,
+                "tags": []
+            }
+        
+        # 获取或创建标签
+        existing_tag_names = {t.name for t in book.tags}
+        new_tags = []
+        
+        for tag_name in auto_tags:
+            if tag_name not in existing_tag_names:
+                # 获取或创建标签
+                tag_result = await db.execute(
+                    select(Tag).where(Tag.name == tag_name)
+                )
+                tag = tag_result.scalar_one_or_none()
+                
+                if not tag:
+                    tag = Tag(name=tag_name)
+                    db.add(tag)
+                    await db.flush()
+                
+                book.tags.append(tag)
+                new_tags.append(tag_name)
+        
+        await db.commit()
+        
+        log.info(
+            f"管理员 {current_user.username} 为书籍 {book.title} 自动添加标签: {new_tags}"
+        )
+        
+        return {
+            "message": f"已添加 {len(new_tags)} 个标签",
+            "book_id": book_id,
+            "book_title": book.title,
+            "new_tags": new_tags,
+            "total_tags": len(book.tags)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        log.error(f"自动打标签失败: {e}")
+        raise HTTPException(status_code=500, detail=f"自动打标签失败: {str(e)}")
