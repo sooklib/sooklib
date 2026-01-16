@@ -78,9 +78,9 @@ app.include_router(tags.router, prefix="/api", tags=["标签管理"])
 app.include_router(user.router, prefix="/api/user", tags=["用户功能"])
 app.include_router(dashboard.router, tags=["Dashboard"])
 app.include_router(opds.router, prefix="/opds", tags=["OPDS"])
-app.include_router(pages.router, prefix="/legacy", tags=["旧版页面"])
+app.include_router(pages.router, tags=["页面"])
 
-# 挂载Flutter Web UI到根路径（必须最后挂载）
-app.mount("/", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
+# 挂载Flutter Web UI（注意：html=True 会自动处理 SPA 路由）
+app.mount("/flutter", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
 
 log.info("FastAPI应用初始化完成")
