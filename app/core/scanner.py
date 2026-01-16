@@ -426,8 +426,8 @@ class Scanner:
         if tag:
             return tag
         
-        # 创建新标签
-        tag = Tag(name=tag_name)
+        # 创建新标签（自动扫描添加的标签类型为auto）
+        tag = Tag(name=tag_name, type="auto")
         self.db.add(tag)
         await self.db.flush()  # 获取ID但不提交
         

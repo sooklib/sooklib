@@ -78,7 +78,7 @@ export default function BookDetailPage() {
 
   const loadReadingProgress = async () => {
     try {
-      const response = await api.get(`/api/reader/${id}/progress`)
+      const response = await api.get(`/api/progress/${id}`)
       setReadingProgress(response.data)
     } catch (err) {
       // 可能没有阅读记录，不需要报错
