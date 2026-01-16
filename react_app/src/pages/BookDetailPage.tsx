@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, Card, CardContent, Button, Chip, Grid,
-  CircularProgress, Alert, IconButton, Divider
+  CircularProgress, Alert, IconButton, Divider, LinearProgress, Paper
 } from '@mui/material'
 import {
   ArrowBack, MenuBook, Download, Favorite, FavoriteBorder,
-  AccessTime, Storage
+  AccessTime, Storage, PlayArrow, CheckCircle, Schedule
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -23,6 +23,15 @@ interface BookDetail {
   age_rating: string | null
   content_warning: string | null
   added_at: string
+  tags?: string[]
+}
+
+interface ReadingProgress {
+  progress: number
+  position: number | null
+  chapter: string | null
+  last_read_at: string | null
+  finished: boolean
 }
 
 export default function BookDetailPage() {
@@ -34,11 +43,13 @@ export default function BookDetailPage() {
   const [error, setError] = useState('')
   const [book, setBook] = useState<BookDetail | null>(null)
   const [isFavorite, setIsFavorite] = useState(false)
+  const [readingProgress, setReadingProgress] = useState<ReadingProgress | null>(null)
 
   useEffect(() => {
     if (id) {
       loadBook()
       checkFavoriteStatus()
+      loadReadingProgress()
     }
   }, [id])
 
@@ -65,6 +76,16 @@ export default function BookDetailPage() {
     }
   }
 
+  const loadReadingProgress = async () => {
+    try {
+      const response = await api.get(`/api/reader/${id}/progress`)
+      setReadingProgress(response.data)
+    } catch (err) {
+      // 可能没有阅读记录，不需要报错
+      console.debug('没有阅读进度')
+    }
+  }
+
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B'
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
@@ -73,6 +94,23 @@ export default function BookDetailPage() {
 
   const formatDate = (dateStr: string): string => {
     return new Date(dateStr).toLocaleDateString('zh-CN')
+  }
+
+  const formatDateTime = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const formatRelativeTime = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    
+    if (diff < 60000) return '刚刚'
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)} 天前`
+    return formatDate(dateStr)
   }
 
   const handleRead = () => {
@@ -121,6 +159,9 @@ export default function BookDetailPage() {
       </Box>
     )
   }
+
+  const hasProgress = readingProgress && readingProgress.progress > 0
+  const progressPercent = readingProgress ? Math.round(readingProgress.progress * 100) : 0
 
   return (
     <Box sx={{ p: 3 }}>
@@ -197,25 +238,93 @@ export default function BookDetailPage() {
               size="small"
               variant="outlined"
             />
-            {book.age_rating && (
+            {book.age_rating && book.age_rating !== 'general' && (
               <Chip
                 label={book.age_rating}
                 color="warning"
                 size="small"
               />
             )}
+            {book.tags?.map((tag, index) => (
+              <Chip
+                key={index}
+                label={tag}
+                size="small"
+                sx={{ bgcolor: 'primary.dark', color: 'white' }}
+              />
+            ))}
           </Box>
 
+          {/* 阅读进度卡片 */}
+          {hasProgress && (
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 2, 
+                mb: 3, 
+                bgcolor: 'action.hover',
+                borderRadius: 2,
+                border: 1,
+                borderColor: 'divider'
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  {readingProgress?.finished ? (
+                    <>
+                      <CheckCircle color="success" sx={{ fontSize: 18 }} />
+                      已读完
+                    </>
+                  ) : (
+                    <>
+                      <Schedule color="primary" sx={{ fontSize: 18 }} />
+                      阅读中
+                    </>
+                  )}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {progressPercent}%
+                </Typography>
+              </Box>
+              
+              <LinearProgress 
+                variant="determinate" 
+                value={progressPercent} 
+                sx={{ 
+                  height: 8, 
+                  borderRadius: 4,
+                  mb: 1,
+                  bgcolor: 'action.selected',
+                  '& .MuiLinearProgress-bar': {
+                    borderRadius: 4,
+                    bgcolor: readingProgress?.finished ? 'success.main' : 'primary.main'
+                  }
+                }} 
+              />
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="caption" color="text.secondary">
+                  {readingProgress?.chapter && `${readingProgress.chapter}`}
+                </Typography>
+                {readingProgress?.last_read_at && (
+                  <Typography variant="caption" color="text.secondary">
+                    最近阅读：{formatRelativeTime(readingProgress.last_read_at)}
+                  </Typography>
+                )}
+              </Box>
+            </Paper>
+          )}
+
           {/* 操作按钮 */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 4 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
             <Button
               variant="contained"
               size="large"
-              startIcon={<MenuBook />}
+              startIcon={hasProgress ? <PlayArrow /> : <MenuBook />}
               onClick={handleRead}
-              sx={{ flex: 1, maxWidth: 200 }}
+              sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: 180 }}
             >
-              开始阅读
+              {hasProgress ? '继续阅读' : '开始阅读'}
             </Button>
             <Button
               variant="outlined"
@@ -260,25 +369,47 @@ export default function BookDetailPage() {
               </Typography>
               <Grid container spacing={2}>
                 {book.publisher && (
-                  <Grid item xs={6}>
+                  <Grid item xs={6} sm={4}>
                     <Typography variant="caption" color="text.secondary">
                       出版社
                     </Typography>
                     <Typography variant="body2">{book.publisher}</Typography>
                   </Grid>
                 )}
-                <Grid item xs={6}>
+                <Grid item xs={6} sm={4}>
                   <Typography variant="caption" color="text.secondary">
                     文件格式
                   </Typography>
                   <Typography variant="body2">{book.file_format.toUpperCase()}</Typography>
                 </Grid>
-                <Grid item xs={6}>
+                <Grid item xs={6} sm={4}>
                   <Typography variant="caption" color="text.secondary">
                     文件大小
                   </Typography>
                   <Typography variant="body2">{formatFileSize(book.file_size)}</Typography>
                 </Grid>
+                <Grid item xs={6} sm={4}>
+                  <Typography variant="caption" color="text.secondary">
+                    添加日期
+                  </Typography>
+                  <Typography variant="body2">{formatDate(book.added_at)}</Typography>
+                </Grid>
+                {readingProgress?.last_read_at && (
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">
+                      最近阅读
+                    </Typography>
+                    <Typography variant="body2">{formatDateTime(readingProgress.last_read_at)}</Typography>
+                  </Grid>
+                )}
+                {hasProgress && (
+                  <Grid item xs={6} sm={4}>
+                    <Typography variant="caption" color="text.secondary">
+                      阅读进度
+                    </Typography>
+                    <Typography variant="body2">{progressPercent}%</Typography>
+                  </Grid>
+                )}
               </Grid>
               {book.content_warning && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
