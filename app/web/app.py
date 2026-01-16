@@ -80,7 +80,8 @@ app.include_router(dashboard.router, tags=["Dashboard"])
 app.include_router(opds.router, prefix="/opds", tags=["OPDS"])
 app.include_router(pages.router, tags=["页面"])
 
-# 挂载Flutter Web UI（注意：html=True 会自动处理 SPA 路由）
-app.mount("/flutter", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
+# 挂载Flutter Web UI到根路径（注意：必须最后挂载，否则会拦截其他路由）
+# html=True 会让 SPA 路由正常工作
+app.mount("/", StaticFiles(directory="app/web/static/flutter", html=True), name="flutter")
 
 log.info("FastAPI应用初始化完成")

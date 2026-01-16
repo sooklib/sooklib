@@ -10,11 +10,7 @@ from app.web.app import templates
 router = APIRouter()
 
 
-@router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    """首页 - 重定向到Flutter Web UI"""
-    return RedirectResponse(url="/flutter/", status_code=302)
-
+# 根路径由 Flutter Web UI 处理，无需路由
 
 @router.get("/legacy", response_class=HTMLResponse)
 async def legacy_index(request: Request):
