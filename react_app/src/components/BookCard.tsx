@@ -10,21 +10,32 @@ interface BookCardProps {
   onClick?: () => void
 }
 
-// 生成颜色的哈希函数
-const stringToColor = (str: string): string => {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  const hue = hash % 360
-  return `hsl(${hue}, 45%, 50%)`
-}
+// Material Design 颜色方案（柔和的纯色）
+const COVER_COLORS = [
+  '#5C6BC0', // 靛蓝
+  '#AB47BC', // 紫色
+  '#EC407A', // 粉色
+  '#EF5350', // 红色
+  '#FF7043', // 深橙
+  '#FFA726', // 橙色
+  '#FFCA28', // 琥珀色
+  '#66BB6A', // 绿色
+  '#26A69A', // 青色
+  '#42A5F5', // 蓝色
+]
 
-// 生成渐变封面
-const generateGradientCover = (title: string) => {
-  const color1 = stringToColor(title)
-  const color2 = stringToColor(title + 'salt')
-  return `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`
+// 根据标题选择颜色
+const getCoverColor = (title: string): string => {
+  let hash = 0
+  // 确保正确处理UTF-8编码的中文字符
+  const titleStr = String(title || '?')
+  for (let i = 0; i < titleStr.length; i++) {
+    const char = titleStr.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  const index = Math.abs(hash) % COVER_COLORS.length
+  return COVER_COLORS[index]
 }
 
 export default function BookCard({ book, loading = false, onClick }: BookCardProps) {
@@ -57,10 +68,18 @@ export default function BookCard({ book, loading = false, onClick }: BookCardPro
 
   // 获取书名首字作为封面文字
   const getFirstChar = (title: string): string => {
-    if (!title) return '?'
-    // 优先取中文字符，否则取第一个字符
-    const match = title.match(/[\u4e00-\u9fa5]/)
-    return match ? match[0] : title[0].toUpperCase()
+    if (!title) return '📖'
+    // 确保正确处理UTF-8编码
+    const titleStr = String(title).trim()
+    if (!titleStr) return '📖'
+    
+    // 优先取中文字符
+    const chineseMatch = titleStr.match(/[\u4e00-\u9fff]/)
+    if (chineseMatch) return chineseMatch[0]
+    
+    // 否则取第一个非空白字符
+    const firstChar = titleStr.charAt(0)
+    return /[a-zA-Z]/.test(firstChar) ? firstChar.toUpperCase() : firstChar
   }
 
   return (
@@ -90,7 +109,7 @@ export default function BookCard({ book, loading = false, onClick }: BookCardPro
             sx={{
               width: '100%',
               height: '100%',
-              background: generateGradientCover(book.title),
+              bgcolor: getCoverColor(book.title),
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -100,37 +119,41 @@ export default function BookCard({ book, loading = false, onClick }: BookCardPro
           >
             {/* 大字符 */}
             <Typography
+              component="div"
               sx={{
                 fontSize: { xs: '5rem', sm: '6rem' },
-                fontWeight: 'bold',
-                color: 'white',
-                textShadow: '3px 3px 6px rgba(0,0,0,0.4)',
+                fontWeight: 700,
+                color: 'rgba(255,255,255,0.95)',
+                textShadow: '0 2px 8px rgba(0,0,0,0.2)',
                 mb: 1,
-                fontFamily: '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif',
                 lineHeight: 1,
+                userSelect: 'none',
               }}
             >
               {getFirstChar(book.title)}
             </Typography>
             {/* 书名 */}
             <Typography
+              component="div"
               sx={{
-                fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                color: 'white',
+                fontSize: { xs: '0.8rem', sm: '0.9rem' },
+                color: 'rgba(255,255,255,0.9)',
                 textAlign: 'center',
-                textShadow: '2px 2px 4px rgba(0,0,0,0.6)',
+                textShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical',
-                lineHeight: 1.3,
-                fontWeight: 600,
-                fontFamily: '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif',
+                lineHeight: 1.4,
+                fontWeight: 500,
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif',
                 px: 1,
+                userSelect: 'none',
               }}
             >
-              {book.title}
+              {String(book.title || '')}
             </Typography>
           </Box>
         ) : (
