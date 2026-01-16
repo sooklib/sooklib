@@ -492,7 +492,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       }
       
       // 获取内容
-      final contentResponse = await _apiClient.get('/books/${widget.bookId}/content');
+      final contentResponse = await _apiClient.get('/api/books/${widget.bookId}/content');
       if (contentResponse.statusCode == 200) {
         final data = contentResponse.data as Map<String, dynamic>;
         final content = data['content'] as String?;

@@ -101032,7 +101032,7 @@ return A.t(f.aT(0,"/api/books/"+o.a.c),$async$oo)
 case 6:n=b
 if(n.c===200){m=t.P.a(n.a)
 o.f=A.bh(J.az(m,"title"))}s=7
-return A.t(o.e.aT(0,"/books/"+o.a.c+"/content"),$async$oo)
+return A.t(o.e.aT(0,"/api/books/"+o.a.c+"/content"),$async$oo)
 case 7:l=b
 s=l.c===200?8:10
 break
