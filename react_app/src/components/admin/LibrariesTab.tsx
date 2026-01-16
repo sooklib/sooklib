@@ -194,7 +194,7 @@ export default function LibrariesTab() {
   const handleEdit = (library: Library) => {
     setDialogType('edit')
     setSelectedLibrary(library)
-    setFormData({ name: library.name, paths: [library.path] })
+    setFormData({ name: library.name, paths: [] })
     setDialogOpen(true)
   }
 
@@ -219,9 +219,9 @@ export default function LibrariesTab() {
           }
         }
       } else if (dialogType === 'edit' && selectedLibrary) {
+        // 编辑时只更新名称，路径在扫描路径区域管理
         await api.put(`/api/libraries/${selectedLibrary.id}`, {
-          name: formData.name,
-          path: formData.paths[0]
+          name: formData.name
         })
       }
       setDialogOpen(false)
@@ -577,30 +577,43 @@ export default function LibrariesTab() {
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               fullWidth
               required
+              autoFocus
             />
             
-            {formData.paths.map((path, index) => (
-              <Box key={index} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                <TextField
-                  label={`路径 ${index + 1}`}
-                  value={path}
-                  onChange={(e) => updatePathField(index, e.target.value)}
-                  fullWidth
-                  required
-                  helperText={index === 0 ? '书籍文件所在的目录路径' : ''}
-                />
-                {dialogType === 'create' && formData.paths.length > 1 && (
-                  <IconButton onClick={() => removePathField(index)} color="error" sx={{ mt: 1 }}>
-                    <Delete />
-                  </IconButton>
-                )}
-              </Box>
-            ))}
-            
             {dialogType === 'create' && (
-              <Button startIcon={<Add />} onClick={addPathField} variant="outlined" size="small">
-                添加路径
-              </Button>
+              <>
+                {formData.paths.map((path, index) => (
+                  <Box key={index} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                    <TextField
+                      label={`扫描路径 ${index + 1}`}
+                      value={path}
+                      onChange={(e) => updatePathField(index, e.target.value)}
+                      fullWidth
+                      required
+                      helperText={index === 0 ? '书籍文件所在的目录路径' : ''}
+                    />
+                    {formData.paths.length > 1 && (
+                      <IconButton onClick={() => removePathField(index)} color="error" sx={{ mt: 1 }}>
+                        <Delete />
+                      </IconButton>
+                    )}
+                  </Box>
+                ))}
+                
+                <Button startIcon={<Add />} onClick={addPathField} variant="outlined" size="small">
+                  添加更多路径
+                </Button>
+                
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  创建后可在"扫描路径"区域继续添加或管理路径
+                </Alert>
+              </>
+            )}
+            
+            {dialogType === 'edit' && (
+              <Alert severity="info">
+                路径管理请展开书库，在"扫描路径"区域进行操作
+              </Alert>
             )}
           </Box>
         </DialogContent>
