@@ -315,10 +315,17 @@ export default function ReaderPage() {
       setError('')
 
       // 加载保存的进度
+      let initialProgress = 0
+      let initialPosition = 0
       try {
         const progressResponse = await api.get<ReadingProgress>(`/api/progress/${id}`)
         if (progressResponse.data.progress > 0) {
+          initialProgress = progressResponse.data.progress
           setSavedProgress(progressResponse.data.progress)
+          // 解析保存的位置（字符偏移）
+          if (progressResponse.data.position) {
+            initialPosition = parseInt(progressResponse.data.position) || 0
+          }
         }
       } catch {
         console.log('无保存的阅读进度')
@@ -337,9 +344,42 @@ export default function ReaderPage() {
       } else if (format === 'txt' || format === '.txt') {
         setIsEpub(false)
         // 先加载完整目录
-        await loadToc()
-        // 再加载第一页内容
-        await loadTxtContent(0)
+        const tocData = await loadToc()
+        
+        // 根据保存的进度决定从哪一页开始加载
+        let startPage = 0
+        if (initialPosition > 0 && tocData && tocData.totalLength > 0) {
+          // 根据保存的偏移位置计算起始页
+          startPage = Math.floor(initialPosition / 50000)  // CHARS_PER_PAGE
+          
+          // 同时设置当前章节
+          const chapterIndex = tocData.chapters.findIndex((ch: TocChapter) => 
+            initialPosition >= ch.startOffset && initialPosition < ch.endOffset
+          )
+          if (chapterIndex >= 0) {
+            setCurrentChapter(chapterIndex)
+          }
+          
+          setCurrentOffset(initialPosition)
+          setProgress(initialProgress)
+        } else if (initialProgress > 0 && tocData && tocData.totalLength > 0) {
+          // 如果没有具体位置但有进度，根据进度计算
+          const targetOffset = Math.floor(tocData.totalLength * initialProgress)
+          startPage = Math.floor(targetOffset / 50000)
+          
+          const chapterIndex = tocData.chapters.findIndex((ch: TocChapter) => 
+            targetOffset >= ch.startOffset && targetOffset < ch.endOffset
+          )
+          if (chapterIndex >= 0) {
+            setCurrentChapter(chapterIndex)
+          }
+          
+          setCurrentOffset(targetOffset)
+          setProgress(initialProgress)
+        }
+        
+        // 从计算出的起始页加载内容
+        await loadTxtContent(startPage)
         setContentLoaded(true)
       } else {
         setError(`暂不支持 ${format} 格式的在线阅读`)
@@ -353,18 +393,26 @@ export default function ReaderPage() {
   }
 
   // 加载完整目录
-  const loadToc = async () => {
+  const loadToc = async (): Promise<{ chapters: TocChapter[]; totalLength: number; totalPages: number } | null> => {
     try {
       const tocResponse = await api.get(`/api/books/${id}/toc`)
       const data = tocResponse.data
       
       if (data.format === 'txt') {
-        setChapters(data.chapters || [])
-        setTotalLength(data.totalLength || 0)
-        setTotalPages(data.totalPages || 1)
+        const chapters = data.chapters || []
+        const tocTotalLength = data.totalLength || 0
+        const tocTotalPages = data.totalPages || 1
+        
+        setChapters(chapters)
+        setTotalLength(tocTotalLength)
+        setTotalPages(tocTotalPages)
+        
+        return { chapters, totalLength: tocTotalLength, totalPages: tocTotalPages }
       }
+      return null
     } catch (err) {
       console.error('加载目录失败:', err)
+      return null
     }
   }
 
