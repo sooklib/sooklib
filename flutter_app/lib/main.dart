@@ -15,6 +15,10 @@ import 'screens/reader_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/admin/admin_screen.dart';
+import 'screens/admin/backup_screen.dart';
+import 'screens/admin/covers_screen.dart';
+import 'screens/admin/libraries_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -128,6 +132,23 @@ class MyApp extends StatelessWidget {
         GoRoute(
           path: '/settings',
           builder: (context, state) => const SettingsScreen(),
+        ),
+        // 管理员路由
+        GoRoute(
+          path: '/admin',
+          builder: (context, state) => const AdminScreen(),
+        ),
+        GoRoute(
+          path: '/admin/backup',
+          builder: (context, state) => const BackupScreen(),
+        ),
+        GoRoute(
+          path: '/admin/covers',
+          builder: (context, state) => const CoversScreen(),
+        ),
+        GoRoute(
+          path: '/admin/libraries',
+          builder: (context, state) => const LibrariesScreen(),
         ),
       ],
     );

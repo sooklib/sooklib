@@ -191,6 +191,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const Divider(),
 
           _buildSection('设置'),
+          // 管理员入口（仅管理员可见）
+          Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              if (auth.currentUser?.isAdmin != true) return const SizedBox();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildListTile(
+                    context,
+                    icon: Icons.admin_panel_settings,
+                    title: '管理中心',
+                    subtitle: '备份、封面、书库管理',
+                    onTap: () => context.push('/admin'),
+                  ),
+                  const Divider(),
+                ],
+              );
+            },
+          ),
           Consumer<ThemeProvider>(
             builder: (context, themeProvider, _) => SwitchListTile(
               secondary: const Icon(Icons.dark_mode),
