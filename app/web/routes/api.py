@@ -76,6 +76,21 @@ class ProgressUpdate(BaseModel):
     finished: bool = False
 
 
+class BookUpdate(BaseModel):
+    """书籍更新请求"""
+    title: Optional[str] = None
+    author_name: Optional[str] = None  # 作者名，如不存在会创建
+    description: Optional[str] = None
+    publisher: Optional[str] = None
+    age_rating: Optional[str] = None
+    content_warning: Optional[str] = None
+
+
+class BookTagsUpdate(BaseModel):
+    """书籍标签更新请求"""
+    tag_ids: List[int]
+
+
 class StatsResponse(BaseModel):
     """统计信息响应"""
     total_books: int
@@ -372,8 +387,10 @@ async def get_book(
     db: AsyncSession = Depends(get_db)
 ):
     """获取用户有权访问的书籍详情"""
+    from app.models import BookTag, Tag
+    
     # 加载关联数据
-    await db.refresh(book, ['author', 'versions'])
+    await db.refresh(book, ['author', 'versions', 'book_tags'])
     
     # 获取主版本或第一个版本
     primary_version = None
@@ -381,6 +398,80 @@ async def get_book(
         primary_version = next((v for v in book.versions if v.is_primary), None)
         if not primary_version:
             primary_version = book.versions[0] if book.versions else None
+    
+    # 获取标签信息
+    tag_ids = [bt.tag_id for bt in book.book_tags]
+    tags = []
+    if tag_ids:
+        result = await db.execute(select(Tag).where(Tag.id.in_(tag_ids)))
+        tag_objects = result.scalars().all()
+        tags = [{"id": t.id, "name": t.name, "type": t.type} for t in tag_objects]
+    
+    return {
+        "id": book.id,
+        "title": book.title,
+        "author_name": book.author.name if book.author else None,
+        "file_path": primary_version.file_path if primary_version else "",
+        "file_format": primary_version.file_format if primary_version else "unknown",
+        "file_size": primary_version.file_size if primary_version else 0,
+        "description": book.description,
+        "publisher": book.publisher,
+        "age_rating": book.age_rating,
+        "content_warning": book.content_warning,
+        "added_at": book.added_at.isoformat(),
+        "tags": tags,
+    }
+
+
+@router.put("/books/{book_id}")
+async def update_book(
+    book_id: int,
+    book_data: BookUpdate,
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新书籍信息"""
+    # 更新基本字段
+    if book_data.title is not None:
+        book.title = book_data.title
+    if book_data.description is not None:
+        book.description = book_data.description
+    if book_data.publisher is not None:
+        book.publisher = book_data.publisher
+    if book_data.age_rating is not None:
+        book.age_rating = book_data.age_rating
+    if book_data.content_warning is not None:
+        book.content_warning = book_data.content_warning
+    
+    # 处理作者
+    if book_data.author_name is not None:
+        if book_data.author_name.strip():
+            # 查找或创建作者
+            result = await db.execute(
+                select(Author).where(Author.name == book_data.author_name.strip())
+            )
+            author = result.scalar_one_or_none()
+            if not author:
+                author = Author(name=book_data.author_name.strip())
+                db.add(author)
+                await db.flush()
+            book.author_id = author.id
+        else:
+            # 清空作者
+            book.author_id = None
+    
+    await db.commit()
+    await db.refresh(book, ['author', 'versions'])
+    
+    # 获取主版本
+    primary_version = None
+    if book.versions:
+        primary_version = next((v for v in book.versions if v.is_primary), None)
+        if not primary_version:
+            primary_version = book.versions[0] if book.versions else None
+    
+    log.info(f"更新书籍: {book.title}")
     
     return {
         "id": book.id,
@@ -395,6 +486,70 @@ async def get_book(
         "content_warning": book.content_warning,
         "added_at": book.added_at.isoformat(),
     }
+
+
+@router.get("/books/{book_id}/tags")
+async def get_book_tags(
+    book_id: int,
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取书籍的标签"""
+    from app.models import BookTag, Tag
+    
+    await db.refresh(book, ['book_tags'])
+    
+    tag_ids = [bt.tag_id for bt in book.book_tags]
+    if not tag_ids:
+        return {"tags": []}
+    
+    result = await db.execute(select(Tag).where(Tag.id.in_(tag_ids)))
+    tags = result.scalars().all()
+    
+    return {
+        "tags": [{"id": t.id, "name": t.name, "type": t.type, "description": t.description} for t in tags]
+    }
+
+
+@router.put("/books/{book_id}/tags")
+async def update_book_tags(
+    book_id: int,
+    data: BookTagsUpdate,
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新书籍的标签"""
+    from app.models import BookTag, Tag
+    
+    # 删除现有标签关联
+    await db.execute(
+        BookTag.__table__.delete().where(BookTag.book_id == book_id)
+    )
+    
+    # 添加新标签关联
+    if data.tag_ids:
+        # 验证标签存在
+        result = await db.execute(select(Tag).where(Tag.id.in_(data.tag_ids)))
+        valid_tags = result.scalars().all()
+        valid_tag_ids = [t.id for t in valid_tags]
+        
+        for tag_id in valid_tag_ids:
+            book_tag = BookTag(book_id=book_id, tag_id=tag_id)
+            db.add(book_tag)
+    
+    await db.commit()
+    
+    # 返回更新后的标签列表
+    if data.tag_ids:
+        result = await db.execute(select(Tag).where(Tag.id.in_(data.tag_ids)))
+        tags = result.scalars().all()
+        return {
+            "tags": [{"id": t.id, "name": t.name, "type": t.type} for t in tags]
+        }
+    
+    return {"tags": []}
 
 
 # ===== 作者管理 =====

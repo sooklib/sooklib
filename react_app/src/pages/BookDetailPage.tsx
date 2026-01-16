@@ -2,14 +2,24 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, Card, CardContent, Button, Chip, Grid,
-  CircularProgress, Alert, IconButton, Divider, LinearProgress, Paper
+  CircularProgress, Alert, IconButton, Divider, LinearProgress, Paper,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField,
+  FormControl, InputLabel, Select, MenuItem
 } from '@mui/material'
 import {
   ArrowBack, MenuBook, Download, Favorite, FavoriteBorder,
-  AccessTime, Storage, PlayArrow, CheckCircle, Schedule
+  AccessTime, Storage, PlayArrow, CheckCircle, Schedule,
+  Edit, LocalOffer
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+
+interface TagInfo {
+  id: number
+  name: string
+  type: string
+  description?: string
+}
 
 interface BookDetail {
   id: number
@@ -23,7 +33,7 @@ interface BookDetail {
   age_rating: string | null
   content_warning: string | null
   added_at: string
-  tags?: string[]
+  tags?: TagInfo[]
 }
 
 interface ReadingProgress {
@@ -32,6 +42,15 @@ interface ReadingProgress {
   chapter: string | null
   last_read_at: string | null
   finished: boolean
+}
+
+interface EditFormData {
+  title: string
+  author_name: string
+  description: string
+  publisher: string
+  age_rating: string
+  content_warning: string
 }
 
 export default function BookDetailPage() {
@@ -44,6 +63,24 @@ export default function BookDetailPage() {
   const [book, setBook] = useState<BookDetail | null>(null)
   const [isFavorite, setIsFavorite] = useState(false)
   const [readingProgress, setReadingProgress] = useState<ReadingProgress | null>(null)
+  
+  // 编辑模式
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editForm, setEditForm] = useState<EditFormData>({
+    title: '',
+    author_name: '',
+    description: '',
+    publisher: '',
+    age_rating: 'general',
+    content_warning: ''
+  })
+  const [saving, setSaving] = useState(false)
+  
+  // 标签管理
+  const [tagDialogOpen, setTagDialogOpen] = useState(false)
+  const [allTags, setAllTags] = useState<TagInfo[]>([])
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [savingTags, setSavingTags] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -52,6 +89,10 @@ export default function BookDetailPage() {
       loadReadingProgress()
     }
   }, [id])
+
+  useEffect(() => {
+    loadAllTags()
+  }, [])
 
   const loadBook = async () => {
     try {
@@ -83,6 +124,64 @@ export default function BookDetailPage() {
     } catch (err) {
       // 可能没有阅读记录，不需要报错
       console.debug('没有阅读进度')
+    }
+  }
+
+  const loadAllTags = async () => {
+    try {
+      const response = await api.get<TagInfo[]>('/api/tags')
+      setAllTags(response.data)
+    } catch (err) {
+      console.error('加载标签列表失败:', err)
+    }
+  }
+
+  const handleOpenEditDialog = () => {
+    if (book) {
+      setEditForm({
+        title: book.title,
+        author_name: book.author_name || '',
+        description: book.description || '',
+        publisher: book.publisher || '',
+        age_rating: book.age_rating || 'general',
+        content_warning: book.content_warning || ''
+      })
+      setEditDialogOpen(true)
+    }
+  }
+
+  const handleSaveBook = async () => {
+    try {
+      setSaving(true)
+      await api.put(`/api/books/${id}`, editForm)
+      setEditDialogOpen(false)
+      loadBook() // 重新加载书籍信息
+    } catch (err: any) {
+      console.error('保存失败:', err)
+      alert(err.response?.data?.detail || '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleOpenTagDialog = () => {
+    if (book) {
+      setSelectedTagIds(book.tags?.map(t => t.id) || [])
+      setTagDialogOpen(true)
+    }
+  }
+
+  const handleSaveTags = async () => {
+    try {
+      setSavingTags(true)
+      await api.put(`/api/books/${id}/tags`, { tag_ids: selectedTagIds })
+      setTagDialogOpen(false)
+      loadBook() // 重新加载书籍信息
+    } catch (err: any) {
+      console.error('保存标签失败:', err)
+      alert(err.response?.data?.detail || '保存标签失败')
+    } finally {
+      setSavingTags(false)
     }
   }
 
@@ -245,10 +344,10 @@ export default function BookDetailPage() {
                 size="small"
               />
             )}
-            {book.tags?.map((tag, index) => (
+            {book.tags?.map((tag) => (
               <Chip
-                key={index}
-                label={tag}
+                key={tag.id}
+                label={tag.name}
                 size="small"
                 sx={{ bgcolor: 'primary.dark', color: 'white' }}
               />
@@ -333,6 +432,22 @@ export default function BookDetailPage() {
               onClick={handleDownload}
             >
               下载
+            </Button>
+            <Button
+              variant="outlined"
+              size="large"
+              startIcon={<Edit />}
+              onClick={handleOpenEditDialog}
+            >
+              编辑
+            </Button>
+            <Button
+              variant="outlined"
+              size="large"
+              startIcon={<LocalOffer />}
+              onClick={handleOpenTagDialog}
+            >
+              标签
             </Button>
             <IconButton
               onClick={toggleFavorite}
@@ -420,6 +535,112 @@ export default function BookDetailPage() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* 编辑书籍对话框 */}
+      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>编辑书籍信息</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <TextField
+              label="书名"
+              value={editForm.title}
+              onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+              fullWidth
+              required
+            />
+            <TextField
+              label="作者"
+              value={editForm.author_name}
+              onChange={(e) => setEditForm({ ...editForm, author_name: e.target.value })}
+              fullWidth
+            />
+            <TextField
+              label="简介"
+              value={editForm.description}
+              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              fullWidth
+              multiline
+              rows={4}
+            />
+            <TextField
+              label="出版社"
+              value={editForm.publisher}
+              onChange={(e) => setEditForm({ ...editForm, publisher: e.target.value })}
+              fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel>年龄分级</InputLabel>
+              <Select
+                value={editForm.age_rating}
+                label="年龄分级"
+                onChange={(e) => setEditForm({ ...editForm, age_rating: e.target.value })}
+              >
+                <MenuItem value="general">一般</MenuItem>
+                <MenuItem value="teen">青少年</MenuItem>
+                <MenuItem value="mature">成人</MenuItem>
+                <MenuItem value="adult">18+</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="内容警告"
+              value={editForm.content_warning}
+              onChange={(e) => setEditForm({ ...editForm, content_warning: e.target.value })}
+              fullWidth
+              placeholder="例如：暴力、恐怖等"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={handleSaveBook} disabled={saving}>
+            {saving ? '保存中...' : '保存'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 标签管理对话框 */}
+      <Dialog open={tagDialogOpen} onClose={() => setTagDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>管理书籍标签</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            选择要应用到此书籍的标签
+          </Typography>
+          
+          {allTags.length === 0 ? (
+            <Alert severity="info">暂无可用标签，请先在管理后台创建标签。</Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {allTags.map((tag) => (
+                <Chip
+                  key={tag.id}
+                  label={tag.name}
+                  onClick={() => {
+                    if (selectedTagIds.includes(tag.id)) {
+                      setSelectedTagIds(prev => prev.filter(id => id !== tag.id))
+                    } else {
+                      setSelectedTagIds(prev => [...prev, tag.id])
+                    }
+                  }}
+                  color={selectedTagIds.includes(tag.id) ? 'primary' : 'default'}
+                  variant={selectedTagIds.includes(tag.id) ? 'filled' : 'outlined'}
+                />
+              ))}
+            </Box>
+          )}
+          
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              已选择 {selectedTagIds.length} 个标签
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTagDialogOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={handleSaveTags} disabled={savingTags}>
+            {savingTags ? '保存中...' : '保存'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

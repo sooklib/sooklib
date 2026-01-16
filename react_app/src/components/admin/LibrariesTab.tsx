@@ -9,7 +9,7 @@ import {
 import {
   Add, Edit, Delete, Refresh, FolderOpen, ExpandMore, ExpandLess,
   PlayArrow, Stop, CheckCircle, Error as ErrorIcon, Schedule,
-  Folder, DeleteOutline, AddCircle
+  Folder, DeleteOutline, AddCircle, LocalOffer, Sync
 } from '@mui/icons-material'
 import api from '../../services/api'
 
@@ -45,6 +45,13 @@ interface ScanTask {
   created_at: string
 }
 
+interface TagInfo {
+  id: number
+  name: string
+  type: string
+  description?: string
+}
+
 export default function LibrariesTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -63,6 +70,14 @@ export default function LibrariesTab() {
   const [activeTasks, setActiveTasks] = useState<Record<number, ScanTask>>({})
   const [taskHistories, setTaskHistories] = useState<Record<number, ScanTask[]>>({})
   
+  // 书库标签
+  const [libraryTags, setLibraryTags] = useState<Record<number, TagInfo[]>>({})
+  const [allTags, setAllTags] = useState<TagInfo[]>([])
+  const [tagDialogOpen, setTagDialogOpen] = useState(false)
+  const [selectedLibraryForTag, setSelectedLibraryForTag] = useState<number | null>(null)
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [applyingTags, setApplyingTags] = useState<number | null>(null)
+  
   // 对话框状态
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogType, setDialogType] = useState<'create' | 'edit'>('create')
@@ -76,7 +91,26 @@ export default function LibrariesTab() {
 
   useEffect(() => {
     loadLibraries()
+    loadAllTags()
   }, [])
+
+  const loadAllTags = async () => {
+    try {
+      const response = await api.get<TagInfo[]>('/api/tags')
+      setAllTags(response.data)
+    } catch (err) {
+      console.error('加载标签列表失败:', err)
+    }
+  }
+
+  const loadLibraryTags = async (libraryId: number) => {
+    try {
+      const response = await api.get<{ tags: TagInfo[] }>(`/admin/libraries/${libraryId}/tags`)
+      setLibraryTags(prev => ({ ...prev, [libraryId]: response.data.tags }))
+    } catch (err) {
+      console.error('加载书库标签失败:', err)
+    }
+  }
 
   // 轮询活动任务
   useEffect(() => {
@@ -180,6 +214,9 @@ export default function LibrariesTab() {
       }
       if (!taskHistories[libraryId]) {
         await loadTaskHistory(libraryId)
+      }
+      if (!libraryTags[libraryId]) {
+        await loadLibraryTags(libraryId)
       }
     }
   }
@@ -301,6 +338,43 @@ export default function LibrariesTab() {
     } catch (err: any) {
       console.error('启动扫描失败:', err)
       setError(err.response?.data?.detail || '启动扫描失败')
+    }
+  }
+
+  const handleOpenTagDialog = (libraryId: number) => {
+    const currentTags = libraryTags[libraryId] || []
+    setSelectedLibraryForTag(libraryId)
+    setSelectedTagIds(currentTags.map(t => t.id))
+    setTagDialogOpen(true)
+  }
+
+  const handleSaveLibraryTags = async () => {
+    if (!selectedLibraryForTag) return
+    
+    try {
+      await api.put(`/admin/libraries/${selectedLibraryForTag}/tags`, {
+        tag_ids: selectedTagIds
+      })
+      setTagDialogOpen(false)
+      await loadLibraryTags(selectedLibraryForTag)
+    } catch (err) {
+      console.error('保存书库标签失败:', err)
+      setError('保存标签失败')
+    }
+  }
+
+  const handleApplyTagsToBooks = async (libraryId: number) => {
+    if (!confirm('确定要将书库默认标签应用到该书库所有书籍吗？已有相同标签的书籍将跳过。')) return
+    
+    try {
+      setApplyingTags(libraryId)
+      const response = await api.post(`/admin/libraries/${libraryId}/apply-tags`)
+      alert(`成功应用标签！共处理 ${response.data.books_count} 本书，添加 ${response.data.applied_count} 个标签关联。`)
+    } catch (err: any) {
+      console.error('应用标签失败:', err)
+      setError(err.response?.data?.detail || '应用标签失败')
+    } finally {
+      setApplyingTags(null)
     }
   }
 
@@ -510,6 +584,53 @@ export default function LibrariesTab() {
                       )}
                     </Box>
 
+                    {/* 书库默认标签 */}
+                    <Box sx={{ mb: 3 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <LocalOffer fontSize="small" />
+                          默认标签
+                        </Typography>
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            size="small"
+                            startIcon={<Sync />}
+                            onClick={() => handleApplyTagsToBooks(library.id)}
+                            disabled={applyingTags === library.id || (libraryTags[library.id]?.length || 0) === 0}
+                          >
+                            {applyingTags === library.id ? '应用中...' : '应用到所有书籍'}
+                          </Button>
+                          <Button
+                            size="small"
+                            startIcon={<Edit />}
+                            onClick={() => handleOpenTagDialog(library.id)}
+                          >
+                            管理标签
+                          </Button>
+                        </Stack>
+                      </Box>
+                      
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        新扫描入库的书籍将自动添加这些标签
+                      </Typography>
+                      
+                      {(libraryTags[library.id]?.length || 0) === 0 ? (
+                        <Typography variant="body2" color="text.secondary">暂无默认标签</Typography>
+                      ) : (
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {libraryTags[library.id]?.map((tag) => (
+                            <Chip
+                              key={tag.id}
+                              label={tag.name}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
+
                     {/* 扫描历史 */}
                     <Box>
                       <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>扫描历史</Typography>
@@ -620,6 +741,48 @@ export default function LibrariesTab() {
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>取消</Button>
           <Button variant="contained" onClick={handleSubmit}>确定</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 书库标签管理对话框 */}
+      <Dialog open={tagDialogOpen} onClose={() => setTagDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>管理书库默认标签</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            选择的标签将自动应用到新扫描入库的书籍。
+          </Typography>
+          
+          {allTags.length === 0 ? (
+            <Alert severity="info">暂无可用标签，请先在"标签管理"中创建标签。</Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {allTags.map((tag) => (
+                <Chip
+                  key={tag.id}
+                  label={tag.name}
+                  onClick={() => {
+                    if (selectedTagIds.includes(tag.id)) {
+                      setSelectedTagIds(prev => prev.filter(id => id !== tag.id))
+                    } else {
+                      setSelectedTagIds(prev => [...prev, tag.id])
+                    }
+                  }}
+                  color={selectedTagIds.includes(tag.id) ? 'primary' : 'default'}
+                  variant={selectedTagIds.includes(tag.id) ? 'filled' : 'outlined'}
+                />
+              ))}
+            </Box>
+          )}
+          
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              已选择 {selectedTagIds.length} 个标签
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTagDialogOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={handleSaveLibraryTags}>保存</Button>
         </DialogActions>
       </Dialog>
 
