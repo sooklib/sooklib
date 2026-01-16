@@ -20,8 +20,15 @@ from app.utils.logger import log
 router = APIRouter()
 
 
+# 大文件阈值：500KB
+LARGE_FILE_THRESHOLD = 500 * 1024
+# 每页字符数
+CHARS_PER_PAGE = 50000
+
+
 @router.get("/books/{book_id}/content")
 async def get_book_content(
+    page: int = Query(0, ge=0, description="页码，从0开始"),
     book: Book = Depends(get_accessible_book),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -29,6 +36,10 @@ async def get_book_content(
     """
     获取书籍内容（用于在线阅读）
     需要有书籍访问权限
+    
+    对于大文件（>500KB）支持分页加载：
+    - page: 页码，从0开始
+    - 每页约50000字符
     """
     from sqlalchemy.orm import selectinload
     
@@ -53,7 +64,7 @@ async def get_book_content(
     file_format = primary_version.file_format.lower()
     
     if file_format == 'txt' or file_format == '.txt':
-        return await _read_txt_content(file_path)
+        return await _read_txt_content(file_path, page)
     elif file_format == 'epub' or file_format == '.epub':
         # EPUB 文件直接返回，由前端 epub.js 处理
         return FileResponse(
@@ -68,21 +79,30 @@ async def get_book_content(
         )
 
 
-async def _read_txt_content(file_path: Path) -> dict:
+async def _read_txt_content(file_path: Path, page: int = 0) -> dict:
     """
-    读取TXT文件内容
+    读取TXT文件内容（支持分页）
+    
+    Args:
+        file_path: 文件路径
+        page: 页码（从0开始）
     """
     import re
     
     try:
+        file_size = file_path.stat().st_size
+        is_large_file = file_size > LARGE_FILE_THRESHOLD
+        
         # 尝试多种编码
         encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030']
         content = None
+        used_encoding = None
         
         for encoding in encodings:
             try:
                 with open(file_path, 'r', encoding=encoding) as f:
                     content = f.read()
+                used_encoding = encoding
                 break
             except UnicodeDecodeError:
                 continue
@@ -96,12 +116,45 @@ async def _read_txt_content(file_path: Path) -> dict:
         # 清理常见的网站标记和乱码
         content = _clean_txt_content(content)
         
+        total_length = len(content)
+        total_pages = (total_length + CHARS_PER_PAGE - 1) // CHARS_PER_PAGE
+        
+        # 小文件或page=0时返回全部（向后兼容）
+        if not is_large_file or total_pages <= 1:
+            return {
+                "format": "txt",
+                "content": content,
+                "length": total_length,
+                "page": 0,
+                "totalPages": 1,
+                "hasMore": False
+            }
+        
+        # 大文件分页加载
+        start = page * CHARS_PER_PAGE
+        end = min(start + CHARS_PER_PAGE, total_length)
+        
+        if start >= total_length:
+            raise HTTPException(
+                status_code=400,
+                detail=f"页码超出范围，最大页码为 {total_pages - 1}"
+            )
+        
+        page_content = content[start:end]
+        
         return {
             "format": "txt",
-            "content": content,
-            "length": len(content)
+            "content": page_content,
+            "length": total_length,
+            "page": page,
+            "totalPages": total_pages,
+            "hasMore": end < total_length,
+            "startOffset": start,
+            "endOffset": end
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         log.error(f"读取TXT文件失败: {file_path}, 错误: {e}")
         raise HTTPException(

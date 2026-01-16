@@ -67,6 +67,13 @@ export default function ReaderPage() {
   const [bookInfo, setBookInfo] = useState<{ title: string; format: string } | null>(null)
   const [isEpub, setIsEpub] = useState(false)
   
+  // 分页加载状态
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [totalLength, setTotalLength] = useState(0)
+  
   // EPUB 相关
   const [epubBook, setEpubBook] = useState<Book | null>(null)
   const [epubRendition, setEpubRendition] = useState<Rendition | null>(null)
@@ -345,14 +352,51 @@ export default function ReaderPage() {
     }
   }
 
-  const loadTxt = async () => {
-    const contentResponse = await api.get(`/api/books/${id}/content`)
-    const data = contentResponse.data
+  const loadTxt = async (page: number = 0) => {
+    try {
+      const contentResponse = await api.get(`/api/books/${id}/content`, {
+        params: { page }
+      })
+      const data = contentResponse.data
+      
+      if (data.format === 'txt') {
+        if (page === 0) {
+          // 第一页，直接设置内容
+          setContent(data.content)
+          const parsedChapters = parseChapters(data.content)
+          setChapters(parsedChapters)
+        } else {
+          // 后续页，追加内容
+          setContent(prev => prev + data.content)
+          // 重新解析章节（包含所有已加载内容）
+          const newContent = content + data.content
+          const parsedChapters = parseChapters(newContent)
+          setChapters(parsedChapters)
+        }
+        
+        // 更新分页状态
+        setCurrentPage(data.page || 0)
+        setTotalPages(data.totalPages || 1)
+        setHasMore(data.hasMore || false)
+        setTotalLength(data.length || 0)
+      }
+    } catch (err) {
+      console.error('加载TXT内容失败:', err)
+      throw err
+    }
+  }
+
+  // 加载更多内容
+  const loadMoreContent = async () => {
+    if (!hasMore || loadingMore) return
     
-    if (data.format === 'txt') {
-      setContent(data.content)
-      const parsedChapters = parseChapters(data.content)
-      setChapters(parsedChapters)
+    try {
+      setLoadingMore(true)
+      await loadTxt(currentPage + 1)
+    } catch (err) {
+      console.error('加载更多内容失败:', err)
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -505,8 +549,13 @@ export default function ReaderPage() {
           break
         }
       }
+      
+      // 滚动到底部时自动加载更多
+      if (hasMore && !loadingMore && scrollTop + clientHeight >= scrollHeight - 500) {
+        loadMoreContent()
+      }
     }
-  }, [chapters, isEpub])
+  }, [chapters, isEpub, hasMore, loadingMore])
 
   const goToChapter = (index: number) => {
     setCurrentChapter(index)
