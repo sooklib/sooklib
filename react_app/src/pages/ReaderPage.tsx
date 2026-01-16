@@ -73,6 +73,8 @@ export default function ReaderPage() {
   
   // 进度
   const [progress, setProgress] = useState(0)
+  const [savedProgress, setSavedProgress] = useState<number | null>(null)
+  const [contentLoaded, setContentLoaded] = useState(false)
 
   // 加载书籍信息
   useEffect(() => {
@@ -158,6 +160,16 @@ export default function ReaderPage() {
       setLoading(true)
       setError('')
 
+      // 先加载阅读进度
+      try {
+        const progressResponse = await api.get<ReadingProgress>(`/api/progress/${id}`)
+        if (progressResponse.data.progress > 0) {
+          setSavedProgress(progressResponse.data.progress)
+        }
+      } catch {
+        console.log('无保存的阅读进度')
+      }
+
       // 获取书籍信息
       const bookResponse = await api.get(`/api/books/${id}`)
       const format = bookResponse.data.file_format.toLowerCase()
@@ -172,12 +184,10 @@ export default function ReaderPage() {
       } else if (format === 'txt' || format === '.txt') {
         setIsEpub(false)
         await loadTxt()
+        setContentLoaded(true)
       } else {
         setError(`暂不支持 ${format} 格式的在线阅读`)
       }
-
-      // 加载阅读进度
-      await loadProgress()
     } catch (err: unknown) {
       console.error('加载书籍失败:', err)
       setError('加载失败，请重试')
@@ -256,27 +266,35 @@ export default function ReaderPage() {
     }
   }
 
-  const loadProgress = async () => {
-    try {
-      const response = await api.get<ReadingProgress>(`/api/progress/${id}`)
-      if (response.data.progress > 0) {
-        setProgress(response.data.progress)
-        
-        if (!isEpub && contentRef.current) {
-          // TXT 滚动到保存位置
-          setTimeout(() => {
-            if (contentRef.current) {
-              const scrollHeight = contentRef.current.scrollHeight
-              contentRef.current.scrollTop = scrollHeight * response.data.progress
-            }
-          }, 100)
+  // TXT 内容加载后恢复进度
+  useEffect(() => {
+    if (contentLoaded && savedProgress !== null && !isEpub && contentRef.current) {
+      // 等待 DOM 渲染完成
+      setTimeout(() => {
+        if (contentRef.current) {
+          const scrollHeight = contentRef.current.scrollHeight - contentRef.current.clientHeight
+          contentRef.current.scrollTop = scrollHeight * savedProgress
+          setProgress(savedProgress)
+          console.log(`已恢复阅读进度: ${Math.round(savedProgress * 100)}%`)
         }
-        // EPUB 的位置恢复在 epubRendition 创建后处理
-      }
-    } catch (err) {
-      console.error('加载进度失败:', err)
+      }, 300)
     }
-  }
+  }, [contentLoaded, savedProgress, isEpub])
+
+  // EPUB 渲染完成后恢复进度
+  useEffect(() => {
+    if (epubRendition && savedProgress !== null && epubBook) {
+      // 等待 locations 生成
+      epubBook.locations.generate(1024).then(() => {
+        const cfi = epubBook.locations.cfiFromPercentage(savedProgress)
+        if (cfi) {
+          epubRendition.display(cfi)
+          setProgress(savedProgress)
+          console.log(`已恢复 EPUB 阅读进度: ${Math.round(savedProgress * 100)}%`)
+        }
+      })
+    }
+  }, [epubRendition, savedProgress, epubBook])
 
   const saveProgress = async () => {
     try {
