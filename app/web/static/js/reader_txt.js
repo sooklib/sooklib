@@ -1,6 +1,35 @@
 // TXT阅读器
 const bookId = parseInt(window.location.pathname.split('/').pop());
 
+// 从 localStorage 或 URL 参数获取 token
+function getToken() {
+    // 1. 尝试从 URL 参数获取
+    const urlParams = new URLSearchParams(window.location.search);
+    let token = urlParams.get('token');
+    
+    // 2. 尝试从 localStorage 获取
+    if (!token) {
+        token = localStorage.getItem('token');
+    }
+    
+    // 3. 尝试从 Flutter 存储获取
+    if (!token) {
+        try {
+            const flutterAuth = localStorage.getItem('flutter.auth_token');
+            if (flutterAuth) {
+                token = flutterAuth.replace(/"/g, '');
+            }
+        } catch(e) {}
+    }
+    
+    // 如果从 URL 获取到 token，保存到 localStorage
+    if (token && urlParams.get('token')) {
+        localStorage.setItem('token', token);
+    }
+    
+    return token;
+}
+
 // 阅读器状态
 let bookData = null;
 let currentPosition = 0;
@@ -107,10 +136,17 @@ function goBack() {
 
 // 加载书籍信息
 async function loadBookInfo() {
+    const token = getToken();
+    if (!token) {
+        alert('未登录，请先登录后再试。');
+        window.history.back();
+        return;
+    }
+    
     try {
         const response = await fetch(`/api/books/${bookId}`, {
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             }
         });
         
@@ -136,10 +172,12 @@ async function loadBookInfo() {
 
 // 加载书籍内容
 async function loadContent() {
+    const token = getToken();
+    
     try {
         const response = await fetch(`/api/books/${bookId}/content`, {
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             }
         });
         
@@ -203,10 +241,12 @@ function escapeHtml(text) {
 
 // 加载阅读进度
 async function loadProgress() {
+    const token = getToken();
+    
     try {
         const response = await fetch(`/api/progress/${bookId}`, {
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             }
         });
         
@@ -234,13 +274,14 @@ function saveProgressDebounced() {
 async function saveProgress() {
     currentPosition = window.pageYOffset;
     const progress = calculateProgress();
+    const token = getToken();
     
     try {
         await fetch(`/api/progress/${bookId}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
                 current_position: currentPosition.toString(),
@@ -317,10 +358,12 @@ document.addEventListener('click', (e) => {
 
 // 加载书签列表
 async function loadBookmarks() {
+    const token = getToken();
+    
     try {
         const response = await fetch(`/api/books/${bookId}/bookmarks`, {
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             }
         });
         
@@ -402,13 +445,14 @@ function closeBookmarkDialog() {
 async function saveBookmark() {
     const note = document.getElementById('bookmark-note').value.trim();
     const position = window.pageYOffset;
+    const token = getToken();
     
     try {
         const response = await fetch('/api/bookmarks', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
                 book_id: bookId,
@@ -449,11 +493,13 @@ async function deleteBookmark(bookmarkId) {
         return;
     }
     
+    const token = getToken();
+    
     try {
         const response = await fetch(`/api/bookmarks/${bookmarkId}`, {
             method: 'DELETE',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${token}`
             }
         });
         

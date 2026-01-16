@@ -1,54 +1,165 @@
-{% extends "base.html" %}
-
-{% block content %}
-<div class="flex items-center justify-center min-h-screen">
-    <div class="text-center">
-        <div class="loading-spinner"></div>
-        <p class="mt-4 text-gray-600">正在加载阅读器...</p>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正在加载阅读器...</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .loading-container {
+            text-align: center;
+            padding: 2rem;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #4f46e5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .loading-text {
+            color: #9ca3af;
+            font-size: 1rem;
+        }
+        .error-container {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .error-title {
+            color: #ef4444;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .error-message {
+            color: #9ca3af;
+            margin-bottom: 1.5rem;
+        }
+        .back-button {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #4f46e5;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 0.5rem;
+            transition: background 0.2s;
+        }
+        .back-button:hover {
+            background: #4338ca;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-container" id="loading">
+        <div class="spinner"></div>
+        <p class="loading-text">正在加载阅读器...</p>
     </div>
-</div>
+    
+    <div class="error-container" id="error">
+        <h1 class="error-title">加载失败</h1>
+        <p class="error-message" id="error-message">未知错误</p>
+        <a href="javascript:history.back()" class="back-button">返回</a>
+    </div>
 
-<script>
-// 获取书籍ID
-const bookId = {{ book_id }};
-
-// 获取书籍信息并跳转到对应的阅读器
-async function loadReader() {
-    try {
-        const response = await fetch(`/api/books/${bookId}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
+    <script>
+        const bookId = {{ book_id }};
         
-        if (!response.ok) {
-            if (response.status === 401) {
-                window.location.href = '/login';
+        // 从 Flutter localStorage 或 URL 获取 token
+        function getToken() {
+            // 尝试从 localStorage 获取（Flutter Web 存储）
+            let token = localStorage.getItem('token');
+            
+            // 如果没有，尝试从 URL 参数获取
+            if (!token) {
+                const urlParams = new URLSearchParams(window.location.search);
+                token = urlParams.get('token');
+            }
+            
+            // 如果还是没有，尝试从 flutter_storage 获取
+            if (!token) {
+                try {
+                    const flutterAuth = localStorage.getItem('flutter.auth_token');
+                    if (flutterAuth) {
+                        token = flutterAuth.replace(/"/g, '');
+                    }
+                } catch(e) {}
+            }
+            
+            return token;
+        }
+        
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error-message').textContent = message;
+        }
+        
+        async function loadReader() {
+            const token = getToken();
+            
+            if (!token) {
+                showError('未登录，请先登录后再试。点击返回到首页登录。');
                 return;
             }
-            throw new Error('无法加载书籍信息');
+            
+            try {
+                const response = await fetch(`/api/books/${bookId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        showError('登录已过期，请重新登录。');
+                        return;
+                    }
+                    if (response.status === 404) {
+                        showError('书籍不存在。');
+                        return;
+                    }
+                    throw new Error('无法加载书籍信息');
+                }
+                
+                const book = await response.json();
+                const format = (book.file_format || '').toLowerCase();
+                
+                // 根据格式跳转到对应的阅读器，带上 token 参数
+                const tokenParam = `?token=${encodeURIComponent(token)}`;
+                
+                if (format === '.txt' || format === 'txt') {
+                    window.location.href = `/reader/txt/${bookId}${tokenParam}`;
+                } else if (format === '.epub' || format === 'epub') {
+                    window.location.href = `/reader/epub/${bookId}${tokenParam}`;
+                } else {
+                    showError(`暂不支持 ${format || '未知'} 格式的在线阅读，请下载后使用专业阅读器打开。`);
+                }
+            } catch (error) {
+                console.error('加载阅读器失败:', error);
+                showError('加载失败: ' + error.message);
+            }
         }
         
-        const book = await response.json();
-        const format = book.file_format.toLowerCase();
-        
-        // 根据格式跳转到对应的阅读器
-        if (format === '.txt') {
-            window.location.href = `/reader/txt/${bookId}`;
-        } else if (format === '.epub') {
-            window.location.href = `/reader/epub/${bookId}`;
-        } else {
-            alert(`暂不支持 ${format} 格式的在线阅读，请下载后使用专业阅读器打开。`);
-            window.history.back();
-        }
-    } catch (error) {
-        console.error('加载阅读器失败:', error);
-        alert('加载阅读器失败: ' + error.message);
-        window.history.back();
-    }
-}
-
-// 页面加载时执行
-loadReader();
-</script>
-{% endblock %}
+        // 页面加载时执行
+        loadReader();
+    </script>
+</body>
+</html>
