@@ -1,9 +1,10 @@
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import '../models/book.dart';
 import '../services/book_service.dart';
 import '../services/api_client.dart';
+import '../services/api_config.dart';
 import '../services/storage_service.dart';
 
 class BookDetailScreen extends StatefulWidget {
@@ -17,10 +18,12 @@ class BookDetailScreen extends StatefulWidget {
 
 class _BookDetailScreenState extends State<BookDetailScreen> {
   late BookService _bookService;
+  late ApiClient _apiClient;
   Book? _book;
   bool _isLoading = true;
   String? _errorMessage;
   bool _isFavorite = false;
+  double? _readingProgress;
 
   @override
   void initState() {
@@ -31,9 +34,11 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   Future<void> _initService() async {
     final storage = StorageService();
     await storage.init();
-    final apiClient = ApiClient(storage);
-    _bookService = BookService(apiClient);
-    _loadBookDetail();
+    _apiClient = ApiClient(storage);
+    _bookService = BookService(_apiClient);
+    await _loadBookDetail();
+    await _loadReadingProgress();
+    await _checkFavoriteStatus();
   }
 
   Future<void> _loadBookDetail() async {
@@ -54,6 +59,74 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _loadReadingProgress() async {
+    try {
+      final response = await _apiClient.get('/api/progress/${widget.bookId}');
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        setState(() {
+          _readingProgress = (data['progress'] as num?)?.toDouble() ?? 0.0;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Load progress error: $e');
+    }
+  }
+
+  Future<void> _checkFavoriteStatus() async {
+    try {
+      final response = await _apiClient.get('/api/user/favorites/${widget.bookId}/check');
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        setState(() {
+          _isFavorite = data['is_favorite'] as bool? ?? false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Check favorite error: $e');
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    try {
+      if (_isFavorite) {
+        await _apiClient.delete('/api/user/favorites/${widget.bookId}');
+      } else {
+        await _apiClient.post('/api/user/favorites/${widget.bookId}', data: {});
+      }
+      setState(() {
+        _isFavorite = !_isFavorite;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isFavorite ? '已添加到收藏' : '已取消收藏'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('操作失败: $e')),
+        );
+      }
+    }
+  }
+
+  void _downloadBook() {
+    final downloadUrl = '${ApiConfig.baseUrl}/books/${widget.bookId}/download';
+    // 使用 dart:html 在新窗口打开下载链接
+    html.window.open(downloadUrl, '_blank');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('开始下载...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -88,7 +161,7 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   Widget _buildDetailView() {
     if (_book == null) return const SizedBox();
 
-    final coverUrl = _bookService.getCoverUrl(_book!.id, size: 'large');
+    final coverUrl = '${ApiConfig.baseUrl}/books/${_book!.id}/cover?size=large';
 
     return CustomScrollView(
       slivers: [
@@ -101,11 +174,16 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
               fit: StackFit.expand,
               children: [
                 // 背景模糊封面
-                CachedNetworkImage(
-                  imageUrl: coverUrl,
-                  fit: BoxFit.cover,
-                  color: Colors.black.withOpacity(0.6),
-                  colorBlendMode: BlendMode.darken,
+                ColorFiltered(
+                  colorFilter: ColorFilter.mode(
+                    Colors.black.withOpacity(0.6),
+                    BlendMode.darken,
+                  ),
+                  child: Image.network(
+                    coverUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(color: Colors.grey[900]),
+                  ),
                 ),
                 // 前景封面
                 Center(
@@ -122,12 +200,15 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                         ),
                       ],
                     ),
-                    child: CachedNetworkImage(
-                      imageUrl: coverUrl,
-                      fit: BoxFit.cover,
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.menu_book, size: 64),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Image.network(
+                        coverUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Colors.grey[800],
+                          child: const Icon(Icons.menu_book, size: 64),
+                        ),
                       ),
                     ),
                   ),
@@ -170,6 +251,29 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                     ],
                   ),
 
+                // 阅读进度
+                if (_readingProgress != null && _readingProgress! > 0) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: _readingProgress,
+                          backgroundColor: Colors.grey[800],
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Theme.of(context).primaryColor,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${(_readingProgress! * 100).toInt()}%',
+                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+
                 const SizedBox(height: 16),
 
                 // 操作按钮
@@ -180,8 +284,16 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                         onPressed: () {
                           context.push('/reader/${_book!.id}');
                         },
-                        icon: const Icon(Icons.auto_stories),
-                        label: const Text('开始阅读'),
+                        icon: Icon(
+                          _readingProgress != null && _readingProgress! > 0
+                              ? Icons.play_arrow
+                              : Icons.auto_stories,
+                        ),
+                        label: Text(
+                          _readingProgress != null && _readingProgress! > 0
+                              ? '继续阅读'
+                              : '开始阅读',
+                        ),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
@@ -189,28 +301,14 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                     ),
                     const SizedBox(width: 12),
                     IconButton.filled(
-                      onPressed: () {
-                        setState(() {
-                          _isFavorite = !_isFavorite;
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(_isFavorite ? '已添加到收藏' : '已取消收藏'),
-                            duration: const Duration(seconds: 1),
-                          ),
-                        );
-                      },
+                      onPressed: _toggleFavorite,
                       icon: Icon(
                         _isFavorite ? Icons.favorite : Icons.favorite_border,
                       ),
                       tooltip: '收藏',
                     ),
                     IconButton.filled(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('下载功能开发中...')),
-                        );
-                      },
+                      onPressed: _downloadBook,
                       icon: const Icon(Icons.download),
                       tooltip: '下载',
                     ),
@@ -266,6 +364,8 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                     ),
                   ),
                 ],
+
+                const SizedBox(height: 80), // 底部留白
               ],
             ),
           ),
