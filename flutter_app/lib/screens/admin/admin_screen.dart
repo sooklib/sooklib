@@ -245,11 +245,7 @@ class _AdminScreenState extends State<AdminScreen> {
           title: '用户管理',
           subtitle: '管理用户账号和权限',
           color: Colors.teal,
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('用户管理功能开发中...')),
-            );
-          },
+          onTap: () => context.push('/admin/users'),
         ),
       ],
     );

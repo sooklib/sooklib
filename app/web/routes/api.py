@@ -29,6 +29,12 @@ class LibraryCreate(BaseModel):
     path: str
 
 
+class LibraryUpdate(BaseModel):
+    """更新书库请求"""
+    name: Optional[str] = None
+    path: Optional[str] = None
+
+
 class LibraryResponse(BaseModel):
     """书库响应"""
     id: int
@@ -127,6 +133,109 @@ async def create_library(
     
     log.info(f"创建书库: {library.name}")
     return library
+
+
+@router.get("/libraries/{library_id}")
+async def get_library(
+    library_id: int,
+    library: Library = Depends(get_accessible_library),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取书库详情"""
+    # 统计该书库的书籍数量
+    from sqlalchemy import func
+    book_count = await db.execute(
+        select(func.count(Book.id)).where(Book.library_id == library_id)
+    )
+    total_books = book_count.scalar()
+    
+    return {
+        "id": library.id,
+        "name": library.name,
+        "path": library.path,
+        "last_scan": library.last_scan.isoformat() if library.last_scan else None,
+        "book_count": total_books,
+    }
+
+
+@router.put("/libraries/{library_id}", response_model=LibraryResponse)
+async def update_library(
+    library_id: int,
+    library_data: LibraryUpdate,
+    library: Library = Depends(get_accessible_library),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin)
+):
+    """更新书库信息（需要管理员权限）"""
+    if library_data.name is not None:
+        library.name = library_data.name
+    if library_data.path is not None:
+        library.path = library_data.path
+    
+    await db.commit()
+    await db.refresh(library)
+    
+    log.info(f"更新书库: {library.name}")
+    return {
+        "id": library.id,
+        "name": library.name,
+        "path": library.path,
+        "last_scan": library.last_scan.isoformat() if library.last_scan else None,
+    }
+
+
+@router.get("/libraries/{library_id}/stats")
+async def get_library_stats(
+    library_id: int,
+    library: Library = Depends(get_accessible_library),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取书库统计信息"""
+    from sqlalchemy import func
+    from app.models import BookVersion
+    
+    # 书籍总数
+    book_count = await db.execute(
+        select(func.count(Book.id)).where(Book.library_id == library_id)
+    )
+    total_books = book_count.scalar()
+    
+    # 作者数量
+    author_count = await db.execute(
+        select(func.count(func.distinct(Book.author_id)))
+        .where(Book.library_id == library_id)
+        .where(Book.author_id.isnot(None))
+    )
+    total_authors = author_count.scalar()
+    
+    # 总文件大小
+    total_size = await db.execute(
+        select(func.sum(BookVersion.file_size))
+        .join(Book)
+        .where(Book.library_id == library_id)
+    )
+    total_file_size = total_size.scalar() or 0
+    
+    # 格式分布
+    format_stats = await db.execute(
+        select(BookVersion.file_format, func.count(BookVersion.id))
+        .join(Book)
+        .where(Book.library_id == library_id)
+        .group_by(BookVersion.file_format)
+    )
+    formats = {row[0]: row[1] for row in format_stats}
+    
+    return {
+        "library_id": library_id,
+        "library_name": library.name,
+        "total_books": total_books,
+        "total_authors": total_authors,
+        "total_file_size": total_file_size,
+        "format_distribution": formats,
+        "last_scan": library.last_scan.isoformat() if library.last_scan else None,
+    }
 
 
 @router.post("/libraries/{library_id}/scan")

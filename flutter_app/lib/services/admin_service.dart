@@ -156,6 +156,63 @@ class AdminService {
     throw Exception('获取书库列表失败: ${response.statusCode}');
   }
 
+  /// 获取书库详情
+  Future<Map<String, dynamic>> getLibrary(int libraryId) async {
+    final response = await _apiClient.get('/api/libraries/$libraryId');
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('获取书库详情失败: ${response.statusCode}');
+  }
+
+  /// 创建书库
+  Future<Map<String, dynamic>> createLibrary({
+    required String name,
+    required String path,
+  }) async {
+    final response = await _apiClient.post(
+      '/api/libraries',
+      data: {'name': name, 'path': path},
+    );
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('创建书库失败: ${response.statusCode}');
+  }
+
+  /// 更新书库
+  Future<Map<String, dynamic>> updateLibrary(
+    int libraryId, {
+    String? name,
+    String? path,
+  }) async {
+    final response = await _apiClient.put(
+      '/api/libraries/$libraryId',
+      data: {'name': name, 'path': path},
+    );
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('更新书库失败: ${response.statusCode}');
+  }
+
+  /// 删除书库
+  Future<void> deleteLibrary(int libraryId) async {
+    final response = await _apiClient.delete('/api/libraries/$libraryId');
+    if (response.statusCode != 200) {
+      throw Exception('删除书库失败: ${response.statusCode}');
+    }
+  }
+
+  /// 获取书库统计
+  Future<Map<String, dynamic>> getLibraryStats(int libraryId) async {
+    final response = await _apiClient.get('/api/libraries/$libraryId/stats');
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('获取书库统计失败: ${response.statusCode}');
+  }
+
   /// 扫描书库
   Future<Map<String, dynamic>> scanLibrary(int libraryId) async {
     final response = await _apiClient.post('/api/libraries/$libraryId/scan', data: {});
@@ -163,5 +220,131 @@ class AdminService {
       return response.data as Map<String, dynamic>;
     }
     throw Exception('扫描书库失败: ${response.statusCode}');
+  }
+
+  /// 设置书库公开状态
+  Future<Map<String, dynamic>> setLibraryPublic(int libraryId, bool isPublic) async {
+    final response = await _apiClient.put(
+      '/api/admin/libraries/$libraryId/public?is_public=$isPublic',
+    );
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('设置书库状态失败: ${response.statusCode}');
+  }
+
+  /// 获取书库授权用户
+  Future<Map<String, dynamic>> getLibraryUsers(int libraryId) async {
+    final response = await _apiClient.get('/api/admin/libraries/$libraryId/users');
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('获取书库用户失败: ${response.statusCode}');
+  }
+
+  // ===== 用户管理 =====
+
+  /// 获取用户列表
+  Future<List<Map<String, dynamic>>> getUsers({String? search, int page = 1, int limit = 50}) async {
+    String url = '/api/admin/users?page=$page&limit=$limit';
+    if (search != null && search.isNotEmpty) {
+      url += '&search=$search';
+    }
+    final response = await _apiClient.get(url);
+    if (response.statusCode == 200) {
+      return (response.data as List<dynamic>).cast<Map<String, dynamic>>();
+    }
+    throw Exception('获取用户列表失败: ${response.statusCode}');
+  }
+
+  /// 获取用户详情
+  Future<Map<String, dynamic>> getUser(int userId) async {
+    final response = await _apiClient.get('/api/admin/users/$userId');
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('获取用户详情失败: ${response.statusCode}');
+  }
+
+  /// 创建用户
+  Future<Map<String, dynamic>> createUser({
+    required String username,
+    required String password,
+    bool isAdmin = false,
+    String ageRatingLimit = 'all',
+  }) async {
+    final response = await _apiClient.post(
+      '/api/admin/users',
+      data: {
+        'username': username,
+        'password': password,
+        'is_admin': isAdmin,
+        'age_rating_limit': ageRatingLimit,
+      },
+    );
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('创建用户失败: ${response.statusCode}');
+  }
+
+  /// 更新用户
+  Future<Map<String, dynamic>> updateUser(
+    int userId, {
+    String? username,
+    bool? isAdmin,
+    String? ageRatingLimit,
+  }) async {
+    final response = await _apiClient.put(
+      '/api/admin/users/$userId',
+      data: {
+        if (username != null) 'username': username,
+        if (isAdmin != null) 'is_admin': isAdmin,
+        if (ageRatingLimit != null) 'age_rating_limit': ageRatingLimit,
+      },
+    );
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('更新用户失败: ${response.statusCode}');
+  }
+
+  /// 删除用户
+  Future<void> deleteUser(int userId) async {
+    final response = await _apiClient.delete('/api/admin/users/$userId');
+    if (response.statusCode != 200) {
+      throw Exception('删除用户失败: ${response.statusCode}');
+    }
+  }
+
+  /// 重置用户密码
+  Future<void> resetUserPassword(int userId, String newPassword) async {
+    final response = await _apiClient.put(
+      '/api/admin/users/$userId/password',
+      data: {'new_password': newPassword},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('重置密码失败: ${response.statusCode}');
+    }
+  }
+
+  /// 获取用户书库权限
+  Future<Map<String, dynamic>> getUserLibraryAccess(int userId) async {
+    final response = await _apiClient.get('/api/admin/users/$userId/library-access');
+    if (response.statusCode == 200) {
+      return response.data as Map<String, dynamic>;
+    }
+    throw Exception('获取用户权限失败: ${response.statusCode}');
+  }
+
+  /// 更新用户书库权限
+  Future<void> updateUserLibraryAccess(int userId, List<int> libraryIds) async {
+    final response = await _apiClient.put(
+      '/api/admin/users/$userId/library-access',
+      data: {'library_ids': libraryIds},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('更新用户权限失败: ${response.statusCode}');
+    }
   }
 }

@@ -13,8 +13,9 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import FilenamePattern, Library, Book, User
+from app.models import FilenamePattern, Library, LibraryPermission, Book, User
 from app.web.routes.auth import get_current_user
+from app.security import get_password_hash
 from app.utils.filename_analyzer import FilenameAnalyzer
 from app.utils.logger import log
 from app.core.backup import backup_manager
@@ -81,6 +82,480 @@ def admin_required(current_user: User = Depends(get_current_user)):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return current_user
+
+
+# ==================== 用户管理 API ====================
+
+class UserCreate(BaseModel):
+    """创建用户请求"""
+    username: str
+    password: str
+    is_admin: bool = False
+    age_rating_limit: str = "all"
+
+
+class UserUpdate(BaseModel):
+    """更新用户请求"""
+    username: Optional[str] = None
+    is_admin: Optional[bool] = None
+    age_rating_limit: Optional[str] = None
+
+
+class PasswordReset(BaseModel):
+    """重置密码请求"""
+    new_password: str
+
+
+class LibraryAccessUpdate(BaseModel):
+    """更新书库权限请求"""
+    library_ids: List[int]
+
+
+class UserResponse(BaseModel):
+    """用户响应"""
+    id: int
+    username: str
+    is_admin: bool
+    age_rating_limit: str
+    telegram_id: Optional[str]
+    created_at: datetime
+    library_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/admin/users", response_model=List[UserResponse])
+async def list_users(
+    search: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取用户列表（管理员）
+    """
+    query = select(User)
+    
+    if search:
+        query = query.where(User.username.like(f"%{search}%"))
+    
+    query = query.order_by(User.created_at.desc())
+    
+    # 分页
+    offset = (page - 1) * limit
+    query = query.offset(offset).limit(limit)
+    
+    result = await db.execute(query)
+    users = result.scalars().all()
+    
+    # 构建响应，添加书库权限数量
+    response = []
+    for user in users:
+        # 统计用户有权访问的书库数量
+        perm_count = await db.execute(
+            select(func.count(LibraryPermission.id))
+            .where(LibraryPermission.user_id == user.id)
+        )
+        library_count = perm_count.scalar()
+        
+        response.append({
+            "id": user.id,
+            "username": user.username,
+            "is_admin": user.is_admin,
+            "age_rating_limit": user.age_rating_limit,
+            "telegram_id": user.telegram_id,
+            "created_at": user.created_at,
+            "library_count": library_count,
+        })
+    
+    return response
+
+
+@router.get("/admin/users/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: int,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取用户详情（管理员）
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 统计用户有权访问的书库数量
+    perm_count = await db.execute(
+        select(func.count(LibraryPermission.id))
+        .where(LibraryPermission.user_id == user.id)
+    )
+    library_count = perm_count.scalar()
+    
+    return {
+        "id": user.id,
+        "username": user.username,
+        "is_admin": user.is_admin,
+        "age_rating_limit": user.age_rating_limit,
+        "telegram_id": user.telegram_id,
+        "created_at": user.created_at,
+        "library_count": library_count,
+    }
+
+
+@router.post("/admin/users", response_model=UserResponse)
+async def create_user(
+    user_data: UserCreate,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    创建新用户（管理员）
+    """
+    # 检查用户名是否已存在
+    result = await db.execute(
+        select(User).where(User.username == user_data.username)
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="用户名已存在")
+    
+    # 创建用户
+    user = User(
+        username=user_data.username,
+        password_hash=get_password_hash(user_data.password),
+        is_admin=user_data.is_admin,
+        age_rating_limit=user_data.age_rating_limit,
+    )
+    
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    log.info(f"管理员 {current_user.username} 创建了用户: {user.username}")
+    
+    return {
+        "id": user.id,
+        "username": user.username,
+        "is_admin": user.is_admin,
+        "age_rating_limit": user.age_rating_limit,
+        "telegram_id": user.telegram_id,
+        "created_at": user.created_at,
+        "library_count": 0,
+    }
+
+
+@router.put("/admin/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    user_data: UserUpdate,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    更新用户信息（管理员）
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 不能修改自己的管理员状态
+    if user.id == current_user.id and user_data.is_admin is not None:
+        if not user_data.is_admin:
+            raise HTTPException(status_code=400, detail="不能取消自己的管理员权限")
+    
+    # 更新字段
+    if user_data.username is not None:
+        # 检查新用户名是否已存在
+        existing = await db.execute(
+            select(User).where(User.username == user_data.username).where(User.id != user_id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="用户名已存在")
+        user.username = user_data.username
+    
+    if user_data.is_admin is not None:
+        user.is_admin = user_data.is_admin
+    
+    if user_data.age_rating_limit is not None:
+        user.age_rating_limit = user_data.age_rating_limit
+    
+    await db.commit()
+    await db.refresh(user)
+    
+    # 统计书库权限数量
+    perm_count = await db.execute(
+        select(func.count(LibraryPermission.id))
+        .where(LibraryPermission.user_id == user.id)
+    )
+    library_count = perm_count.scalar()
+    
+    log.info(f"管理员 {current_user.username} 更新了用户: {user.username}")
+    
+    return {
+        "id": user.id,
+        "username": user.username,
+        "is_admin": user.is_admin,
+        "age_rating_limit": user.age_rating_limit,
+        "telegram_id": user.telegram_id,
+        "created_at": user.created_at,
+        "library_count": library_count,
+    }
+
+
+@router.delete("/admin/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    删除用户（管理员）
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 不能删除自己
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能删除自己的账户")
+    
+    username = user.username
+    await db.delete(user)
+    await db.commit()
+    
+    log.info(f"管理员 {current_user.username} 删除了用户: {username}")
+    
+    return {"message": "用户已删除", "username": username}
+
+
+@router.put("/admin/users/{user_id}/password")
+async def reset_user_password(
+    user_id: int,
+    password_data: PasswordReset,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    重置用户密码（管理员）
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    user.password_hash = get_password_hash(password_data.new_password)
+    await db.commit()
+    
+    log.info(f"管理员 {current_user.username} 重置了用户 {user.username} 的密码")
+    
+    return {"message": "密码已重置", "username": user.username}
+
+
+# ==================== 书库权限管理 API ====================
+
+@router.get("/admin/users/{user_id}/library-access")
+async def get_user_library_access(
+    user_id: int,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取用户的书库访问权限（管理员）
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 获取所有书库
+    all_libraries = await db.execute(select(Library))
+    libraries = all_libraries.scalars().all()
+    
+    # 获取用户有权限的书库
+    user_perms = await db.execute(
+        select(LibraryPermission.library_id)
+        .where(LibraryPermission.user_id == user_id)
+    )
+    accessible_ids = set(row[0] for row in user_perms)
+    
+    # 构建响应
+    library_access = []
+    for lib in libraries:
+        library_access.append({
+            "library_id": lib.id,
+            "library_name": lib.name,
+            "has_access": lib.id in accessible_ids or lib.is_public,
+            "is_public": lib.is_public,
+        })
+    
+    return {
+        "user_id": user_id,
+        "username": user.username,
+        "is_admin": user.is_admin,
+        "libraries": library_access,
+    }
+
+
+@router.put("/admin/users/{user_id}/library-access")
+async def update_user_library_access(
+    user_id: int,
+    access_data: LibraryAccessUpdate,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    更新用户的书库访问权限（管理员）
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    # 删除现有权限
+    await db.execute(
+        select(LibraryPermission)
+        .where(LibraryPermission.user_id == user_id)
+    )
+    existing_perms = await db.execute(
+        select(LibraryPermission).where(LibraryPermission.user_id == user_id)
+    )
+    for perm in existing_perms.scalars().all():
+        await db.delete(perm)
+    
+    # 添加新权限
+    for lib_id in access_data.library_ids:
+        # 验证书库存在
+        lib_result = await db.execute(
+            select(Library).where(Library.id == lib_id)
+        )
+        if lib_result.scalar_one_or_none():
+            perm = LibraryPermission(
+                user_id=user_id,
+                library_id=lib_id,
+            )
+            db.add(perm)
+    
+    await db.commit()
+    
+    log.info(
+        f"管理员 {current_user.username} 更新了用户 {user.username} 的书库权限: "
+        f"{len(access_data.library_ids)} 个书库"
+    )
+    
+    return {
+        "message": "书库权限已更新",
+        "user_id": user_id,
+        "library_count": len(access_data.library_ids),
+    }
+
+
+@router.get("/admin/libraries/{library_id}/users")
+async def get_library_users(
+    library_id: int,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取书库的授权用户列表（管理员）
+    """
+    result = await db.execute(
+        select(Library).where(Library.id == library_id)
+    )
+    library = result.scalar_one_or_none()
+    
+    if not library:
+        raise HTTPException(status_code=404, detail="书库不存在")
+    
+    # 获取有权限的用户
+    perms = await db.execute(
+        select(LibraryPermission)
+        .where(LibraryPermission.library_id == library_id)
+    )
+    permissions = perms.scalars().all()
+    
+    # 获取用户信息
+    users = []
+    for perm in permissions:
+        user_result = await db.execute(
+            select(User).where(User.id == perm.user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        if user:
+            users.append({
+                "user_id": user.id,
+                "username": user.username,
+                "is_admin": user.is_admin,
+                "granted_at": perm.created_at,
+            })
+    
+    # 获取所有管理员（管理员可以访问所有书库）
+    admin_result = await db.execute(
+        select(User).where(User.is_admin == True)
+    )
+    admins = admin_result.scalars().all()
+    
+    return {
+        "library_id": library_id,
+        "library_name": library.name,
+        "is_public": library.is_public,
+        "authorized_users": users,
+        "admin_count": len(admins),
+    }
+
+
+@router.put("/admin/libraries/{library_id}/public")
+async def toggle_library_public(
+    library_id: int,
+    is_public: bool,
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    切换书库的公开状态（管理员）
+    """
+    result = await db.execute(
+        select(Library).where(Library.id == library_id)
+    )
+    library = result.scalar_one_or_none()
+    
+    if not library:
+        raise HTTPException(status_code=404, detail="书库不存在")
+    
+    library.is_public = is_public
+    await db.commit()
+    
+    log.info(
+        f"管理员 {current_user.username} 将书库 {library.name} "
+        f"设置为{'公开' if is_public else '私有'}"
+    )
+    
+    return {
+        "library_id": library_id,
+        "library_name": library.name,
+        "is_public": is_public,
+    }
 
 
 @router.post("/admin/analyze-library/{library_id}", response_model=AnalysisResult)

@@ -19,6 +19,7 @@ import 'screens/admin/admin_screen.dart';
 import 'screens/admin/backup_screen.dart';
 import 'screens/admin/covers_screen.dart';
 import 'screens/admin/libraries_screen.dart';
+import 'screens/admin/users_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -169,6 +170,10 @@ class MyApp extends StatelessWidget {
         GoRoute(
           path: '/admin/libraries',
           builder: (context, state) => const LibrariesScreen(),
+        ),
+        GoRoute(
+          path: '/admin/users',
+          builder: (context, state) => const UsersScreen(),
         ),
       ],
     );
