@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, IconButton, Drawer, List, ListItem, ListItemButton,
-  ListItemText, Slider, ToggleButtonGroup, ToggleButton, CircularProgress,
-  Alert, AppBar, Toolbar, Divider, FormControl, Select, MenuItem, Switch,
-  FormControlLabel, Grid, Chip
+  ListItemText, Slider, CircularProgress,
+  Alert, AppBar, Toolbar, Divider, FormControl, Select, MenuItem,
+  Grid, Chip
 } from '@mui/material'
 import {
   ArrowBack, Menu, Settings, TextFields, FormatLineSpacing,
@@ -15,10 +15,10 @@ import ePub, { Book, Rendition } from 'epubjs'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
-interface Chapter {
+interface TocChapter {
   title: string
-  startIndex: number
-  endIndex: number
+  startOffset: number
+  endOffset: number
 }
 
 interface EpubTocItem {
@@ -72,15 +72,16 @@ export default function ReaderPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [totalLength, setTotalLength] = useState(0)
+  const [totalLength, setTotalLength] = useState(0)  // 全书总字符数
+  const [loadedEndOffset, setLoadedEndOffset] = useState(0)  // 当前已加载内容的结束偏移
   
   // EPUB 相关
   const [epubBook, setEpubBook] = useState<Book | null>(null)
   const [epubRendition, setEpubRendition] = useState<Rendition | null>(null)
   const [epubToc, setEpubToc] = useState<EpubTocItem[]>([])
   
-  // TXT 章节
-  const [chapters, setChapters] = useState<Chapter[]>([])
+  // TXT 章节 - 使用后端提供的完整目录
+  const [chapters, setChapters] = useState<TocChapter[]>([])
   const [currentChapter, setCurrentChapter] = useState(0)
   
   // 设置
@@ -106,8 +107,9 @@ export default function ReaderPage() {
   const [tocOpen, setTocOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   
-  // 进度
+  // 进度 - 基于全书字符偏移的进度
   const [progress, setProgress] = useState(0)
+  const [currentOffset, setCurrentOffset] = useState(0)  // 当前阅读位置（字符偏移）
   const [savedProgress, setSavedProgress] = useState<number | null>(null)
   const [contentLoaded, setContentLoaded] = useState(false)
 
@@ -147,7 +149,7 @@ export default function ReaderPage() {
       if (progress > 0 && id) {
         const data = JSON.stringify({
           progress: progress,
-          position: null,
+          position: String(currentOffset),
           finished: progress >= 0.98,
         })
         navigator.sendBeacon(
@@ -159,7 +161,7 @@ export default function ReaderPage() {
     
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [progress, id])
+  }, [progress, currentOffset, id])
 
   // 加载字体列表
   useEffect(() => {
@@ -248,31 +250,25 @@ export default function ReaderPage() {
 
   // 点击区域翻页（静读天下风格）
   const handleContentClick = (e: React.MouseEvent) => {
-    // 不处理设置抽屉打开时的点击
     if (settingsOpen || tocOpen) return
     
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const x = e.clientX - rect.left
     const width = rect.width
     
-    // 点击左侧1/4区域
     if (x < width * 0.25) {
       if (isEpub) {
         epubPrev()
       } else {
         prevChapter()
       }
-    }
-    // 点击右侧1/4区域
-    else if (x > width * 0.75) {
+    } else if (x > width * 0.75) {
       if (isEpub) {
         epubNext()
       } else {
         nextChapter()
       }
-    }
-    // 点击中间区域
-    else {
+    } else {
       setShowToolbar(!showToolbar)
     }
   }
@@ -318,6 +314,7 @@ export default function ReaderPage() {
       setLoading(true)
       setError('')
 
+      // 加载保存的进度
       try {
         const progressResponse = await api.get<ReadingProgress>(`/api/progress/${id}`)
         if (progressResponse.data.progress > 0) {
@@ -339,7 +336,10 @@ export default function ReaderPage() {
         await loadEpub()
       } else if (format === 'txt' || format === '.txt') {
         setIsEpub(false)
-        await loadTxt()
+        // 先加载完整目录
+        await loadToc()
+        // 再加载第一页内容
+        await loadTxtContent(0)
         setContentLoaded(true)
       } else {
         setError(`暂不支持 ${format} 格式的在线阅读`)
@@ -352,7 +352,24 @@ export default function ReaderPage() {
     }
   }
 
-  const loadTxt = async (page: number = 0) => {
+  // 加载完整目录
+  const loadToc = async () => {
+    try {
+      const tocResponse = await api.get(`/api/books/${id}/toc`)
+      const data = tocResponse.data
+      
+      if (data.format === 'txt') {
+        setChapters(data.chapters || [])
+        setTotalLength(data.totalLength || 0)
+        setTotalPages(data.totalPages || 1)
+      }
+    } catch (err) {
+      console.error('加载目录失败:', err)
+    }
+  }
+
+  // 加载TXT内容
+  const loadTxtContent = async (page: number = 0) => {
     try {
       const contentResponse = await api.get(`/api/books/${id}/content`, {
         params: { page }
@@ -361,24 +378,19 @@ export default function ReaderPage() {
       
       if (data.format === 'txt') {
         if (page === 0) {
-          // 第一页，直接设置内容
           setContent(data.content)
-          const parsedChapters = parseChapters(data.content)
-          setChapters(parsedChapters)
         } else {
-          // 后续页，追加内容
           setContent(prev => prev + data.content)
-          // 重新解析章节（包含所有已加载内容）
-          const newContent = content + data.content
-          const parsedChapters = parseChapters(newContent)
-          setChapters(parsedChapters)
         }
         
-        // 更新分页状态
         setCurrentPage(data.page || 0)
-        setTotalPages(data.totalPages || 1)
         setHasMore(data.hasMore || false)
-        setTotalLength(data.length || 0)
+        setLoadedEndOffset(data.endOffset || data.length || 0)
+        
+        // 如果后端没有返回totalLength，从toc获取
+        if (!totalLength && data.length) {
+          setTotalLength(data.length)
+        }
       }
     } catch (err) {
       console.error('加载TXT内容失败:', err)
@@ -392,7 +404,7 @@ export default function ReaderPage() {
     
     try {
       setLoadingMore(true)
-      await loadTxt(currentPage + 1)
+      await loadTxtContent(currentPage + 1)
     } catch (err) {
       console.error('加载更多内容失败:', err)
     } finally {
@@ -453,17 +465,30 @@ export default function ReaderPage() {
 
   // TXT 内容加载后恢复进度
   useEffect(() => {
-    if (contentLoaded && savedProgress !== null && !isEpub && contentRef.current) {
-      setTimeout(() => {
-        if (contentRef.current) {
-          const scrollHeight = contentRef.current.scrollHeight - contentRef.current.clientHeight
-          contentRef.current.scrollTop = scrollHeight * savedProgress
-          setProgress(savedProgress)
-          console.log(`已恢复阅读进度: ${Math.round(savedProgress * 100)}%`)
+    if (contentLoaded && savedProgress !== null && !isEpub && contentRef.current && totalLength > 0) {
+      // 基于全书百分比计算目标偏移
+      const targetOffset = Math.floor(totalLength * savedProgress)
+      setCurrentOffset(targetOffset)
+      setProgress(savedProgress)
+      
+      // 找到对应的章节并跳转
+      const chapterIndex = chapters.findIndex(ch => 
+        targetOffset >= ch.startOffset && targetOffset < ch.endOffset
+      )
+      
+      if (chapterIndex >= 0) {
+        setCurrentChapter(chapterIndex)
+        
+        // 如果目标位置在已加载内容之外，需要加载对应页
+        if (targetOffset > loadedEndOffset) {
+          const targetPage = Math.floor(targetOffset / 50000)  // CHARS_PER_PAGE
+          loadTxtContent(targetPage)
         }
-      }, 300)
+      }
+      
+      console.log(`已恢复阅读进度: ${Math.round(savedProgress * 100)}%`)
     }
-  }, [contentLoaded, savedProgress, isEpub])
+  }, [contentLoaded, savedProgress, isEpub, totalLength, chapters])
 
   // EPUB 渲染完成后恢复进度
   useEffect(() => {
@@ -483,7 +508,7 @@ export default function ReaderPage() {
     try {
       await api.post(`/api/progress/${id}`, {
         progress: progress,
-        position: null,
+        position: String(currentOffset),
         finished: progress >= 0.98,
       })
     } catch (err) {
@@ -491,63 +516,35 @@ export default function ReaderPage() {
     }
   }
 
-  const parseChapters = (text: string): Chapter[] => {
-    const chapterPatterns = [
-      /^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$/gm,
-      /^Chapter\s+\d+.*$/gim,
-      /^卷[零一二三四五六七八九十百千\d]+.*$/gm,
-      /^【.+】$/gm,
-    ]
-
-    const chapters: Chapter[] = []
-    let allMatches: Array<{ title: string; index: number }> = []
-
-    for (const pattern of chapterPatterns) {
-      let match
-      const regex = new RegExp(pattern.source, pattern.flags)
-      while ((match = regex.exec(text)) !== null) {
-        allMatches.push({ title: match[0].trim(), index: match.index })
-      }
-    }
-
-    allMatches.sort((a, b) => a.index - b.index)
-
-    const filteredMatches: typeof allMatches = []
-    for (const match of allMatches) {
-      if (filteredMatches.length === 0 || match.index - filteredMatches[filteredMatches.length - 1].index > 100) {
-        filteredMatches.push(match)
-      }
-    }
-
-    for (let i = 0; i < filteredMatches.length; i++) {
-      chapters.push({
-        title: filteredMatches[i].title,
-        startIndex: filteredMatches[i].index,
-        endIndex: i < filteredMatches.length - 1 ? filteredMatches[i + 1].index : text.length,
-      })
-    }
-
-    if (chapters.length === 0) {
-      chapters.push({ title: '全文', startIndex: 0, endIndex: text.length })
-    }
-
-    return chapters
-  }
-
+  // 基于滚动位置计算当前阅读的字符偏移
   const handleScroll = useCallback(() => {
-    if (contentRef.current && !isEpub) {
+    if (contentRef.current && !isEpub && totalLength > 0) {
       const { scrollTop, scrollHeight, clientHeight } = contentRef.current
-      const newProgress = scrollTop / (scrollHeight - clientHeight)
+      
+      // 计算滚动比例
+      const scrollRatio = scrollHeight > clientHeight 
+        ? scrollTop / (scrollHeight - clientHeight)
+        : 0
+      
+      // 计算当前加载内容中的位置对应的全书偏移
+      // 当前偏移 = 已加载内容开始位置 + (滚动比例 * 已加载内容长度)
+      const loadedStartOffset = currentPage * 50000  // CHARS_PER_PAGE
+      const loadedLength = loadedEndOffset - loadedStartOffset
+      const positionInLoaded = scrollRatio * loadedLength
+      const globalOffset = Math.floor(loadedStartOffset + positionInLoaded)
+      
+      setCurrentOffset(globalOffset)
+      
+      // 基于全书长度计算进度百分比
+      const newProgress = totalLength > 0 ? globalOffset / totalLength : 0
       setProgress(Math.min(Math.max(newProgress, 0), 1))
 
-      const currentPos = scrollTop + clientHeight / 2
-      const contentTop = contentRef.current.offsetTop
-      for (let i = chapters.length - 1; i >= 0; i--) {
-        const chapterElement = document.getElementById(`chapter-${i}`)
-        if (chapterElement && chapterElement.offsetTop - contentTop <= currentPos) {
-          setCurrentChapter(i)
-          break
-        }
+      // 更新当前章节
+      const chapterIndex = chapters.findIndex(ch => 
+        globalOffset >= ch.startOffset && globalOffset < ch.endOffset
+      )
+      if (chapterIndex >= 0 && chapterIndex !== currentChapter) {
+        setCurrentChapter(chapterIndex)
       }
       
       // 滚动到底部时自动加载更多
@@ -555,14 +552,36 @@ export default function ReaderPage() {
         loadMoreContent()
       }
     }
-  }, [chapters, isEpub, hasMore, loadingMore])
+  }, [chapters, isEpub, hasMore, loadingMore, totalLength, currentPage, loadedEndOffset, currentChapter])
 
   const goToChapter = (index: number) => {
     setCurrentChapter(index)
     setTocOpen(false)
-    const chapterElement = document.getElementById(`chapter-${index}`)
-    if (chapterElement) {
-      chapterElement.scrollIntoView({ behavior: 'smooth' })
+    
+    const chapter = chapters[index]
+    if (!chapter) return
+    
+    // 更新当前偏移和进度
+    setCurrentOffset(chapter.startOffset)
+    setProgress(totalLength > 0 ? chapter.startOffset / totalLength : 0)
+    
+    // 如果章节在已加载内容范围内，直接滚动
+    const loadedStartOffset = currentPage * 50000
+    if (chapter.startOffset >= loadedStartOffset && chapter.startOffset < loadedEndOffset) {
+      // 在已加载内容中找到章节位置
+      const chapterElement = document.getElementById(`chapter-${index}`)
+      if (chapterElement) {
+        chapterElement.scrollIntoView({ behavior: 'smooth' })
+        return
+      }
+    }
+    
+    // 需要加载对应页
+    const targetPage = Math.floor(chapter.startOffset / 50000)
+    if (targetPage !== currentPage) {
+      // 重新加载从目标页开始的内容
+      setContent('')
+      loadTxtContent(targetPage)
     }
   }
 
@@ -581,6 +600,58 @@ export default function ReaderPage() {
   }
   const nextChapter = () => {
     if (currentChapter < chapters.length - 1) goToChapter(currentChapter + 1)
+  }
+
+  // 根据已加载内容和章节信息渲染内容
+  const renderContent = () => {
+    if (!content) return null
+    
+    const loadedStartOffset = currentPage * 50000
+    
+    // 找到当前已加载内容覆盖的章节
+    const visibleChapters = chapters.filter(ch => {
+      return ch.endOffset > loadedStartOffset && ch.startOffset < loadedEndOffset
+    })
+    
+    if (visibleChapters.length === 0) {
+      // 没有匹配章节，直接显示内容
+      return (
+        <Box sx={{ mb: 4 }}>
+          {content}
+        </Box>
+      )
+    }
+    
+    return visibleChapters.map((chapter, idx) => {
+      // 计算该章节在已加载内容中的范围
+      const chapterStartInContent = Math.max(0, chapter.startOffset - loadedStartOffset)
+      const chapterEndInContent = Math.min(content.length, chapter.endOffset - loadedStartOffset)
+      
+      if (chapterStartInContent >= content.length || chapterEndInContent <= 0) {
+        return null
+      }
+      
+      const chapterContent = content.slice(chapterStartInContent, chapterEndInContent)
+      const chapterIndex = chapters.indexOf(chapter)
+      
+      return (
+        <Box key={chapter.startOffset} id={`chapter-${chapterIndex}`} sx={{ mb: 4 }}>
+          <Typography
+            variant="h5"
+            sx={{
+              fontWeight: 'bold',
+              mb: 2,
+              mt: idx > 0 ? 4 : 0,
+              color: themes[theme].text,
+              fontFamily: fontFamily,
+            }}
+          >
+            {chapter.title}
+          </Typography>
+          {chapterContent.replace(chapter.title, '').trim()}
+        </Box>
+      )
+    })
   }
 
   const currentTheme = themes[theme]
@@ -632,7 +703,6 @@ export default function ReaderPage() {
             {bookInfo?.title}
           </Typography>
           
-          {/* 阅读时长 */}
           <Chip 
             icon={<Timer sx={{ fontSize: 16 }} />} 
             label={formatReadingTime()} 
@@ -640,14 +710,12 @@ export default function ReaderPage() {
             sx={{ mr: 1, color: 'white', bgcolor: 'rgba(255,255,255,0.1)' }}
           />
           
-          {/* 自动滚动 */}
           {!isEpub && (
             <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); setAutoScroll(!autoScroll) }}>
               {autoScroll ? <Stop /> : <PlayArrow />}
             </IconButton>
           )}
           
-          {/* 全屏 */}
           <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); toggleFullscreen() }}>
             {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
           </IconButton>
@@ -702,25 +770,12 @@ export default function ReaderPage() {
               }
             }}
           >
-            {chapters.map((chapter, index) => (
-              <Box key={index} id={`chapter-${index}`} sx={{ mb: 4 }}>
-                <Typography
-                  variant="h5"
-                  sx={{
-                    fontWeight: 'bold',
-                    mb: 2,
-                    mt: index > 0 ? 4 : 0,
-                    color: currentTheme.text,
-                    fontFamily: fontFamily,
-                  }}
-                >
-                  {chapter.title}
-                </Typography>
-                {content.slice(chapter.startIndex, chapter.endIndex)
-                  .replace(chapter.title, '')
-                  .trim()}
+            {renderContent()}
+            {loadingMore && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress size={24} />
               </Box>
-            ))}
+            )}
           </Typography>
         </Box>
       )}
@@ -751,15 +806,24 @@ export default function ReaderPage() {
         >
           <ChevronLeft />
         </IconButton>
-        <Typography variant="caption" sx={{ minWidth: 60 }}>
-          {isEpub ? 'EPUB' : chapters[currentChapter]?.title?.slice(0, 15)}
+        <Typography variant="caption" sx={{ minWidth: 60, fontSize: 11 }}>
+          {isEpub ? 'EPUB' : `第${currentChapter + 1}章`}
         </Typography>
         <Slider
           value={progress * 100}
           onChange={(_, value) => {
-            if (!isEpub && contentRef.current) {
-              const scrollHeight = contentRef.current.scrollHeight - contentRef.current.clientHeight
-              contentRef.current.scrollTop = scrollHeight * ((value as number) / 100)
+            // 拖动进度条跳转
+            const newProgress = (value as number) / 100
+            const targetOffset = Math.floor(totalLength * newProgress)
+            setProgress(newProgress)
+            setCurrentOffset(targetOffset)
+            
+            // 找到对应章节
+            const chapterIndex = chapters.findIndex(ch => 
+              targetOffset >= ch.startOffset && targetOffset < ch.endOffset
+            )
+            if (chapterIndex >= 0) {
+              goToChapter(chapterIndex)
             }
           }}
           onClick={(e) => e.stopPropagation()}
@@ -780,10 +844,12 @@ export default function ReaderPage() {
         </IconButton>
       </Box>
 
-      {/* 目录抽屉 */}
+      {/* 目录抽屉 - 显示完整目录 */}
       <Drawer anchor="left" open={tocOpen} onClose={() => setTocOpen(false)} onClick={(e) => e.stopPropagation()}>
         <Box sx={{ width: 300, p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>目录</Typography>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            目录 ({chapters.length}章)
+          </Typography>
           <List sx={{ maxHeight: 'calc(100vh - 100px)', overflow: 'auto' }}>
             {isEpub ? (
               epubToc.map((item, index) => (
@@ -815,12 +881,11 @@ export default function ReaderPage() {
         </Box>
       </Drawer>
 
-      {/* 设置抽屉 (静读天下风格 - 更多选项) */}
+      {/* 设置抽屉 */}
       <Drawer anchor="right" open={settingsOpen} onClose={() => setSettingsOpen(false)} onClick={(e) => e.stopPropagation()}>
         <Box sx={{ width: 320, p: 3, maxHeight: '100vh', overflow: 'auto' }}>
           <Typography variant="h6" sx={{ mb: 3 }}>阅读设置</Typography>
           
-          {/* 字体大小 */}
           <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <TextFields sx={{ fontSize: 16, mr: 1 }} />
             字体大小 ({fontSize}px)
@@ -835,7 +900,6 @@ export default function ReaderPage() {
             sx={{ mb: 3 }}
           />
 
-          {/* 行间距 */}
           <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <FormatLineSpacing sx={{ fontSize: 16, mr: 1 }} />
             行间距 ({lineHeight})
@@ -850,7 +914,6 @@ export default function ReaderPage() {
             sx={{ mb: 3 }}
           />
 
-          {/* 字间距 */}
           <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <SpaceBar sx={{ fontSize: 16, mr: 1 }} />
             字间距 ({letterSpacing}px)
@@ -865,7 +928,6 @@ export default function ReaderPage() {
             sx={{ mb: 3 }}
           />
 
-          {/* 段落间距 */}
           <Typography variant="subtitle2" gutterBottom>
             段落间距 ({paragraphSpacing}em)
           </Typography>
@@ -881,7 +943,6 @@ export default function ReaderPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* 字体选择 */}
           <Typography variant="subtitle2" gutterBottom>字体</Typography>
           <FormControl fullWidth size="small" sx={{ mb: 3 }}>
             <Select
@@ -900,8 +961,7 @@ export default function ReaderPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* 主题选择 (8种) */}
-          <Typography variant="subtitle2" gutterBottom>主题 (8种)</Typography>
+          <Typography variant="subtitle2" gutterBottom>主题</Typography>
           <Grid container spacing={1} sx={{ mb: 2 }}>
             {Object.entries(themes).map(([key, value]) => (
               <Grid item xs={3} key={key}>
@@ -963,6 +1023,11 @@ export default function ReaderPage() {
             <Typography variant="body2">
               📚 章节：{currentChapter + 1} / {chapters.length}
             </Typography>
+            {totalLength > 0 && (
+              <Typography variant="body2">
+                📝 全书：{Math.round(totalLength / 1000)}k字
+              </Typography>
+            )}
           </Box>
         </Box>
       </Drawer>

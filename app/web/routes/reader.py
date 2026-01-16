@@ -26,6 +26,128 @@ LARGE_FILE_THRESHOLD = 500 * 1024
 CHARS_PER_PAGE = 50000
 
 
+@router.get("/books/{book_id}/toc")
+async def get_book_toc(
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取书籍目录（完整目录，不返回内容）
+    对于大TXT文件，解析全书章节后返回目录信息
+    """
+    from sqlalchemy.orm import selectinload
+    import re
+    
+    await db.refresh(book, ['versions'])
+    
+    primary_version = None
+    if book.versions:
+        primary_version = next((v for v in book.versions if v.is_primary), None)
+        if not primary_version:
+            primary_version = book.versions[0] if book.versions else None
+    
+    if not primary_version:
+        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
+    
+    file_path = Path(primary_version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    file_format = primary_version.file_format.lower()
+    
+    if file_format in ['txt', '.txt']:
+        # 读取全文并解析章节（仅提取目录，不返回内容）
+        encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030']
+        content = None
+        
+        for encoding in encodings:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    content = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if content is None:
+            raise HTTPException(status_code=500, detail="无法解码文件内容")
+        
+        # 清理内容
+        content = _clean_txt_content(content)
+        total_length = len(content)
+        
+        # 解析章节
+        chapters = _parse_chapters(content)
+        
+        return {
+            "format": "txt",
+            "totalLength": total_length,
+            "chapters": chapters,
+            "charsPerPage": CHARS_PER_PAGE,
+            "totalPages": (total_length + CHARS_PER_PAGE - 1) // CHARS_PER_PAGE
+        }
+    
+    elif file_format in ['epub', '.epub']:
+        # EPUB 目录由 epub.js 处理
+        return {
+            "format": "epub",
+            "message": "EPUB目录由前端处理"
+        }
+    
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的文件格式: {file_format}")
+
+
+def _parse_chapters(content: str) -> list:
+    """解析章节目录"""
+    import re
+    
+    chapter_patterns = [
+        r'^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+        r'^Chapter\s+\d+.*$',
+        r'^卷[零一二三四五六七八九十百千\d]+.*$',
+        r'^【.+】$',
+    ]
+    
+    all_matches = []
+    
+    for pattern in chapter_patterns:
+        regex = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
+        for match in regex.finditer(content):
+            all_matches.append({
+                "title": match.group().strip(),
+                "startOffset": match.start()
+            })
+    
+    # 按位置排序并去重
+    all_matches.sort(key=lambda x: x["startOffset"])
+    
+    filtered = []
+    for match in all_matches:
+        if not filtered or match["startOffset"] - filtered[-1]["startOffset"] > 100:
+            filtered.append(match)
+    
+    # 计算结束位置
+    chapters = []
+    for i, ch in enumerate(filtered):
+        end_offset = filtered[i + 1]["startOffset"] if i < len(filtered) - 1 else len(content)
+        chapters.append({
+            "title": ch["title"],
+            "startOffset": ch["startOffset"],
+            "endOffset": end_offset
+        })
+    
+    # 如果没有章节，返回"全文"
+    if not chapters:
+        chapters.append({
+            "title": "全文",
+            "startOffset": 0,
+            "endOffset": len(content)
+        })
+    
+    return chapters
+
+
 @router.get("/books/{book_id}/content")
 async def get_book_content(
     page: int = Query(0, ge=0, description="页码，从0开始"),
