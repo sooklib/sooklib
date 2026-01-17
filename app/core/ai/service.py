@@ -341,9 +341,19 @@ class AIService:
         Returns:
             测试结果
         """
-        return await self.chat([
-            {"role": "user", "content": "请回复'连接成功'"}
-        ], max_tokens=20)
+        # 使用更大的max_tokens避免某些模型返回空响应
+        response = await self.chat([
+            {"role": "user", "content": "你好，请回复'连接成功'这四个字。"}
+        ], max_tokens=100)
+        
+        # 如果成功但内容为空，返回更明确的错误
+        if response.success and (not response.content or response.content.strip() == ""):
+            return AIResponse(
+                success=False, 
+                error="AI返回空响应。可能原因：1)模型不支持此prompt 2)API配置问题 3)代理服务问题"
+            )
+        
+        return response
     
     async def analyze_filename_patterns(self, filenames: List[str], sample_size: int = None) -> Dict[str, Any]:
         """
