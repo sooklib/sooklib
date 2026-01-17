@@ -11,7 +11,8 @@ import {
   Add, Edit, Delete, Refresh, FolderOpen, ExpandMore, ExpandLess,
   PlayArrow, Stop, CheckCircle, Error as ErrorIcon, Schedule,
   Folder, DeleteOutline, AddCircle, LocalOffer, Sync, Warning,
-  Psychology, Code, Preview, MergeType, Search as SearchIcon
+  Psychology, Code, Preview, MergeType, Search as SearchIcon,
+  AutoFixHigh
 } from '@mui/icons-material'
 import api from '../../services/api'
 
@@ -172,6 +173,37 @@ export default function LibrariesTab() {
   const [detectingDuplicates, setDetectingDuplicates] = useState<number | null>(null)
   const [mergingDuplicates, setMergingDuplicates] = useState(false)
   const [selectedMergeGroups, setSelectedMergeGroups] = useState<Set<number>>(new Set())
+  
+  // 批量AI分析
+  interface BatchAnalyzeResult {
+    success: boolean
+    error?: string
+    total_filenames: number
+    recognized_count: number
+    recognized_books: Array<{
+      filename: string
+      title: string
+      author: string | null
+      has_review: boolean
+      review_text: string | null
+    }>
+    patterns: Array<{
+      name: string
+      regex: string
+      title_group: number
+      author_group: number
+      match_count: number
+    }>
+    patterns_created: string[]
+    applied_count: number
+    reviews_added: number
+    books_truncated?: boolean
+  }
+  const [batchAnalyzeDialogOpen, setBatchAnalyzeDialogOpen] = useState(false)
+  const [batchAnalyzeLoading, setBatchAnalyzeLoading] = useState(false)
+  const [batchAnalyzeResult, setBatchAnalyzeResult] = useState<BatchAnalyzeResult | null>(null)
+  const [batchAnalyzeLibraryId, setBatchAnalyzeLibraryId] = useState<number | null>(null)
+  const [batchAnalyzeApplyResults, setBatchAnalyzeApplyResults] = useState(false)
   
   // 表单数据
   const [formData, setFormData] = useState({
@@ -493,6 +525,39 @@ export default function LibrariesTab() {
     }
   }
   
+  // 批量AI分析文件名
+  const handleBatchAnalyze = async (libraryId: number, applyResults: boolean = false) => {
+    setBatchAnalyzeLibraryId(libraryId)
+    setBatchAnalyzeLoading(true)
+    setBatchAnalyzeResult(null)
+    setBatchAnalyzeApplyResults(applyResults)
+    setBatchAnalyzeDialogOpen(true)
+    
+    try {
+      const response = await api.post(`/api/admin/ai/patterns/batch-analyze-library/${libraryId}`, null, {
+        params: {
+          batch_size: 1000,
+          apply_results: applyResults
+        }
+      })
+      
+      if (response.data.success) {
+        setBatchAnalyzeResult(response.data)
+        if (applyResults && response.data.applied_count > 0) {
+          loadLibraries()
+        }
+      } else {
+        setError(response.data.error || '批量AI分析失败')
+        setBatchAnalyzeDialogOpen(false)
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || '批量AI分析失败')
+      setBatchAnalyzeDialogOpen(false)
+    } finally {
+      setBatchAnalyzeLoading(false)
+    }
+  }
+
   // 自动合并所有重复书籍
   const handleAutoMergeDuplicates = async (libraryId: number) => {
     const library = libraries.find(l => l.id === libraryId)
@@ -1071,6 +1136,14 @@ export default function LibrariesTab() {
                       </IconButton>
                       <IconButton
                         size="small"
+                        onClick={() => handleBatchAnalyze(library.id, false)}
+                        title="批量AI分析文件名"
+                        color="secondary"
+                      >
+                        <AutoFixHigh />
+                      </IconButton>
+                      <IconButton
+                        size="small"
                         onClick={() => handleDetectDuplicates(library.id)}
                         title="检测重复书籍"
                         color="warning"
@@ -1640,6 +1713,185 @@ export default function LibrariesTab() {
           >
             {mergingDuplicates ? '合并中...' : `合并选中的 ${selectedMergeGroups.size} 组`}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 批量AI分析对话框 */}
+      <Dialog
+        open={batchAnalyzeDialogOpen}
+        onClose={() => !batchAnalyzeLoading && setBatchAnalyzeDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutoFixHigh color="secondary" />
+          批量AI分析文件名
+          {batchAnalyzeResult && (
+            <Chip
+              label={libraries.find(l => l.id === batchAnalyzeLibraryId)?.name || ''}
+              size="small"
+              color="primary"
+              sx={{ ml: 1 }}
+            />
+          )}
+        </DialogTitle>
+        <DialogContent>
+          {batchAnalyzeLoading ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
+              <CircularProgress size={48} color="secondary" />
+              <Typography sx={{ mt: 2 }}>正在使用AI批量分析文件名...</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                此过程可能需要几分钟，取决于书库大小
+              </Typography>
+            </Box>
+          ) : batchAnalyzeResult ? (
+            <>
+              {/* 统计信息 */}
+              <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Chip label={`总文件: ${batchAnalyzeResult.total_filenames}`} variant="outlined" />
+                <Chip label={`已识别: ${batchAnalyzeResult.recognized_count}`} variant="outlined" color="success" />
+                {batchAnalyzeApplyResults && (
+                  <>
+                    <Chip label={`已应用: ${batchAnalyzeResult.applied_count}`} variant="outlined" color="primary" />
+                    <Chip label={`添加点评: ${batchAnalyzeResult.reviews_added}`} variant="outlined" color="info" />
+                  </>
+                )}
+                <Chip label={`生成规则: ${batchAnalyzeResult.patterns_created.length}`} variant="outlined" color="secondary" />
+              </Box>
+
+              {/* 生成的规则 */}
+              {batchAnalyzeResult.patterns_created.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    已生成的文件名规则
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    {batchAnalyzeResult.patterns_created.map((name, i) => (
+                      <Chip key={i} label={name} size="small" color="secondary" variant="outlined" />
+                    ))}
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    这些规则已保存到"文件名规则"管理中，后续扫描会自动应用
+                  </Typography>
+                </Box>
+              )}
+
+              {/* 识别的书籍预览 */}
+              {batchAnalyzeResult.recognized_books.length > 0 && (
+                <Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                      识别的书籍预览 {batchAnalyzeResult.books_truncated && '(仅显示前100条)'}
+                    </Typography>
+                  </Box>
+                  <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 350 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>文件名</TableCell>
+                          <TableCell>识别书名</TableCell>
+                          <TableCell>识别作者</TableCell>
+                          <TableCell>点评</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {batchAnalyzeResult.recognized_books.map((book, index) => (
+                          <TableRow key={index}>
+                            <TableCell sx={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {book.filename}
+                            </TableCell>
+                            <TableCell sx={{ color: 'success.main', fontWeight: 500 }}>
+                              {book.title || '-'}
+                            </TableCell>
+                            <TableCell>
+                              {book.author || '-'}
+                            </TableCell>
+                            <TableCell>
+                              {book.has_review ? (
+                                <Chip
+                                  label={book.review_text?.substring(0, 30) + (book.review_text && book.review_text.length > 30 ? '...' : '')}
+                                  size="small"
+                                  color="info"
+                                  variant="outlined"
+                                  title={book.review_text || ''}
+                                />
+                              ) : '-'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {/* 规则详情 */}
+              {batchAnalyzeResult.patterns.length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    规则详情
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>规则名称</TableCell>
+                          <TableCell>正则表达式</TableCell>
+                          <TableCell align="center">书名组</TableCell>
+                          <TableCell align="center">作者组</TableCell>
+                          <TableCell align="right">匹配数</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {batchAnalyzeResult.patterns.map((pattern, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{pattern.name}</TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {pattern.regex}
+                            </TableCell>
+                            <TableCell align="center">{pattern.title_group}</TableCell>
+                            <TableCell align="center">{pattern.author_group}</TableCell>
+                            <TableCell align="right">{pattern.match_count}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {!batchAnalyzeApplyResults && batchAnalyzeResult.recognized_count > 0 && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  以上是预览结果。如需应用到书籍元数据，请点击"重新分析并应用"按钮。
+                </Alert>
+              )}
+
+              {batchAnalyzeApplyResults && batchAnalyzeResult.applied_count > 0 && (
+                <Alert severity="success" sx={{ mt: 2 }}>
+                  已成功应用 {batchAnalyzeResult.applied_count} 项变更，添加 {batchAnalyzeResult.reviews_added} 条点评到书籍简介。
+                </Alert>
+              )}
+            </>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setBatchAnalyzeDialogOpen(false)}
+            disabled={batchAnalyzeLoading}
+          >
+            关闭
+          </Button>
+          {batchAnalyzeResult && !batchAnalyzeApplyResults && batchAnalyzeLibraryId && (
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => handleBatchAnalyze(batchAnalyzeLibraryId, true)}
+              disabled={batchAnalyzeLoading}
+              startIcon={batchAnalyzeLoading ? <CircularProgress size={20} /> : <AutoFixHigh />}
+            >
+              重新分析并应用
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
