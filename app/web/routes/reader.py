@@ -203,13 +203,17 @@ async def get_chapter_content(
     # 读取文件内容
     content = await _read_txt_file(file_path)
     if content is None:
+        log.error(f"无法解码文件内容: {file_path}")
         raise HTTPException(status_code=500, detail="无法解码文件内容")
     
     # 解析章节
     all_chapters = _parse_chapters(content)
     total_chapters = len(all_chapters)
     
+    log.info(f"解析到 {total_chapters} 个章节，请求索引: {chapter_index}")
+
     if chapter_index < 0 or chapter_index >= total_chapters:
+        log.error(f"章节索引超出范围: {chapter_index}, 总章节数: {total_chapters}")
         raise HTTPException(status_code=400, detail=f"章节索引超出范围，有效范围: 0-{total_chapters-1}")
     
     # 计算加载范围（当前章节 ± buffer）
