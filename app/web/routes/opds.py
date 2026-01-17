@@ -29,14 +29,38 @@ router = APIRouter()
 security = HTTPBasic(auto_error=False)
 
 
+async def get_opds_user_optional(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+    """
+    OPDS 用户认证（可选）- 支持 HTTP Basic Auth
+    用于根目录等可以匿名访问的页面
+    """
+    if credentials:
+        username = credentials.username
+        password = credentials.password
+        
+        # 查找用户
+        result = await db.execute(select(User).where(User.username == username))
+        user = result.scalar_one_or_none()
+        
+        if user and verify_password(password, user.password_hash):
+            return user
+    
+    return None
+
+
 async def get_opds_user(
     request: Request,
     credentials: HTTPBasicCredentials = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     """
-    OPDS 用户认证 - 支持 HTTP Basic Auth
+    OPDS 用户认证（必需）- 支持 HTTP Basic Auth
     OPDS 客户端（如古腾堡、Calibre等）使用 Basic Auth 而非 JWT
+    用于需要认证才能访问的内容页面
     """
     # 首先检查是否有 Basic Auth 头
     if credentials:
@@ -68,11 +92,14 @@ def get_base_url(request: Request) -> str:
 @router.get("/")
 async def opds_root(
     request: Request,
-    current_user: User = Depends(get_opds_user)
+    current_user: Optional[User] = Depends(get_opds_user_optional)
 ):
     """
     OPDS 根目录
     返回主导航 Feed
+    
+    注意：根目录无需认证即可访问（类似 Calibre）
+    访问具体内容（书籍列表、下载）时才需要认证
     """
     base_url = get_base_url(request)
     xml = build_opds_root(base_url)
@@ -80,6 +107,21 @@ async def opds_root(
     return Response(
         content=xml,
         media_type="application/atom+xml;profile=opds-catalog;kind=navigation"
+    )
+
+
+@router.get("/search-descriptor")
+async def opds_search_descriptor_public(request: Request):
+    """
+    OpenSearch 描述文档（公开访问）
+    供 OPDS 客户端发现搜索功能
+    """
+    base_url = get_base_url(request)
+    xml = build_opds_search_descriptor(base_url)
+    
+    return Response(
+        content=xml,
+        media_type="application/opensearchdescription+xml"
     )
 
 
@@ -386,21 +428,6 @@ async def opds_search(
     return Response(
         content=xml,
         media_type="application/atom+xml;profile=opds-catalog;kind=acquisition"
-    )
-
-
-@router.get("/search-descriptor")
-async def opds_search_descriptor(request: Request):
-    """
-    OpenSearch 描述文档
-    供 OPDS 客户端发现搜索功能
-    """
-    base_url = get_base_url(request)
-    xml = build_opds_search_descriptor(base_url)
-    
-    return Response(
-        content=xml,
-        media_type="application/opensearchdescription+xml"
     )
 
 

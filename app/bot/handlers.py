@@ -2,13 +2,15 @@
 Telegram Bot 命令处理器
 """
 import secrets
+import math
 from datetime import datetime, timedelta
 from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.database import get_db
 from app.models import User, Book, Library, Author, ReadingProgress, BookVersion
@@ -22,6 +24,12 @@ from app.config import settings
 
 # 临时存储绑定授权码（实际应用中应该使用 Redis 或数据库）
 _bind_codes = {}
+
+# 搜索结果缓存（用于分页）
+_search_cache = {}
+
+# 每页显示数量
+PAGE_SIZE = 10
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,136 +179,361 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     keyword = " ".join(context.args)
+    page = 1
     
+    await _perform_search(update, telegram_id, keyword, page, is_callback=False)
+
+
+async def _perform_search(update: Update, telegram_id: str, keyword: str, page: int, is_callback: bool = False):
+    """执行搜索并显示结果"""
     async for db in get_db():
         try:
             # 获取用户
             user = await get_user_by_telegram_id(db, telegram_id)
             if not user:
-                await update.message.reply_text(
-                    "❌ 未绑定账号\n"
-                    "请使用 /bind 命令绑定账号"
-                )
+                msg = "❌ 未绑定账号\n请使用 /bind 命令绑定账号"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
                 return
             
             # 获取可访问的书库
             library_ids = await get_accessible_library_ids(user, db)
             
-            # 搜索书籍
-            query = select(Book).where(
-                Book.library_id.in_(library_ids),
-                (Book.title.contains(keyword))
-            ).limit(10)
+            if not library_ids:
+                msg = "暂无可访问的书库"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+            
+            # 搜索书籍（同时搜索书名和作者）
+            search_term = f"%{keyword}%"
+            query = (
+                select(Book)
+                .options(joinedload(Book.author), joinedload(Book.versions))
+                .outerjoin(Author, Book.author_id == Author.id)
+                .where(Book.library_id.in_(library_ids))
+                .where(or_(Book.title.like(search_term), Author.name.like(search_term)))
+                .order_by(desc(Book.added_at))
+            )
             
             result = await db.execute(query)
-            books = result.scalars().all()
+            all_books = result.unique().scalars().all()
             
             # 应用权限过滤
             accessible_books = []
-            for book in books:
+            for book in all_books:
                 if await check_book_access(user, book.id, db):
                     accessible_books.append(book)
-            books = accessible_books
             
-            if not books:
-                await update.message.reply_text(f"未找到包含 '{keyword}' 的书籍")
+            total = len(accessible_books)
+            
+            if total == 0:
+                msg = f"未找到包含 '{keyword}' 的书籍"
+                if is_callback:
+                    await update.callback_query.edit_message_text(msg)
+                else:
+                    await update.message.reply_text(msg)
                 return
             
+            # 分页
+            total_pages = math.ceil(total / PAGE_SIZE)
+            start = (page - 1) * PAGE_SIZE
+            end = start + PAGE_SIZE
+            books = accessible_books[start:end]
+            
             # 构建结果消息
-            message = f"📚 搜索结果 (共 {len(books)} 本):\n\n"
+            message = f"🔍 搜索: {keyword}\n"
+            message += f"📚 共 {total} 本 | 第 {page}/{total_pages} 页\n\n"
             
-            for book in books:
-                # 获取作者
-                if book.author_id:
-                    author_result = await db.execute(
-                        select(Author).where(Author.id == book.author_id)
-                    )
-                    author = author_result.scalar_one_or_none()
-                    author_name = author.name if author else "未知"
-                else:
-                    author_name = "未知"
+            for i, book in enumerate(books, start=start+1):
+                author_name = book.author.name if book.author else "未知"
+                # 获取文件大小
+                file_size = 0
+                file_format = "unknown"
+                if book.versions:
+                    primary = next((v for v in book.versions if v.is_primary), book.versions[0] if book.versions else None)
+                    if primary:
+                        file_size = primary.file_size
+                        file_format = primary.file_format
                 
-                message += f"📖 {book.title}\n"
-                message += f"👤 作者: {author_name}\n"
-                message += f"🆔 ID: {book.id}\n"
-                message += f"───────────────\n"
+                size_str = f"{file_size / 1024:.1f}KB" if file_size < 1024*1024 else f"{file_size / 1024 / 1024:.1f}MB"
+                
+                message += f"{i:02d}. 📖 {book.title}\n"
+                message += f"    👤 {author_name} | {file_format.upper()} | {size_str}\n"
+                message += f"    🆔 /download {book.id}\n"
             
-            message += f"\n💡 使用 /download <ID> 下载书籍"
+            # 构建翻页按钮
+            keyboard = []
+            nav_row = []
             
-            await update.message.reply_text(message)
+            if page > 1:
+                nav_row.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"search:{keyword}:{page-1}"))
+            
+            nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+            
+            if page < total_pages:
+                nav_row.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"search:{keyword}:{page+1}"))
+            
+            if nav_row:
+                keyboard.append(nav_row)
+            
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            
+            if is_callback:
+                await update.callback_query.edit_message_text(message, reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(message, reply_markup=reply_markup)
             
         except Exception as e:
             logger.error(f"搜索失败: {e}")
-            await update.message.reply_text("❌ 搜索失败，请稍后重试")
+            msg = "❌ 搜索失败，请稍后重试"
+            if is_callback:
+                await update.callback_query.answer(msg, show_alert=True)
+            else:
+                await update.message.reply_text(msg)
 
 
 async def recent_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /recent 命令"""
     telegram_id = str(update.effective_user.id)
+    page = 1
     
+    await _perform_recent(update, telegram_id, page, is_callback=False)
+
+
+async def _perform_recent(update: Update, telegram_id: str, page: int, is_callback: bool = False):
+    """获取最新书籍并显示"""
     async for db in get_db():
         try:
             # 获取用户
             user = await get_user_by_telegram_id(db, telegram_id)
             if not user:
-                await update.message.reply_text(
-                    "❌ 未绑定账号\n"
-                    "请使用 /bind 命令绑定账号"
-                )
+                msg = "❌ 未绑定账号\n请使用 /bind 命令绑定账号"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
                 return
             
             # 获取可访问的书库
             library_ids = await get_accessible_library_ids(user, db)
             
-            # 获取最新书籍
+            if not library_ids:
+                msg = "暂无可访问的书库"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+            
+            # 获取最新书籍（一次性获取更多用于分页）
             query = (
                 select(Book)
+                .options(joinedload(Book.author), joinedload(Book.versions))
                 .where(Book.library_id.in_(library_ids))
                 .order_by(desc(Book.added_at))
-                .limit(10)
             )
             
             result = await db.execute(query)
-            books = result.scalars().all()
+            all_books = result.unique().scalars().all()
             
             # 应用权限过滤
             accessible_books = []
-            for book in books:
+            for book in all_books:
                 if await check_book_access(user, book.id, db):
                     accessible_books.append(book)
-            books = accessible_books
             
-            if not books:
-                await update.message.reply_text("暂无书籍")
+            total = len(accessible_books)
+            
+            if total == 0:
+                msg = "暂无书籍"
+                if is_callback:
+                    await update.callback_query.edit_message_text(msg)
+                else:
+                    await update.message.reply_text(msg)
                 return
             
+            # 分页
+            total_pages = math.ceil(total / PAGE_SIZE)
+            start = (page - 1) * PAGE_SIZE
+            end = start + PAGE_SIZE
+            books = accessible_books[start:end]
+            
             # 构建结果消息
-            message = f"📚 最新添加 (共 {len(books)} 本):\n\n"
+            message = f"📚 最新添加\n"
+            message += f"共 {total} 本 | 第 {page}/{total_pages} 页\n\n"
             
-            for book in books:
-                # 获取作者
-                if book.author_id:
-                    author_result = await db.execute(
-                        select(Author).where(Author.id == book.author_id)
-                    )
-                    author = author_result.scalar_one_or_none()
-                    author_name = author.name if author else "未知"
-                else:
-                    author_name = "未知"
+            for i, book in enumerate(books, start=start+1):
+                author_name = book.author.name if book.author else "未知"
+                # 获取文件大小
+                file_size = 0
+                file_format = "unknown"
+                if book.versions:
+                    primary = next((v for v in book.versions if v.is_primary), book.versions[0] if book.versions else None)
+                    if primary:
+                        file_size = primary.file_size
+                        file_format = primary.file_format
                 
-                message += f"📖 {book.title}\n"
-                message += f"👤 作者: {author_name}\n"
-                message += f"🆔 ID: {book.id}\n"
-                message += f"📅 {book.added_at.strftime('%Y-%m-%d')}\n"
-                message += f"───────────────\n"
+                size_str = f"{file_size / 1024:.1f}KB" if file_size < 1024*1024 else f"{file_size / 1024 / 1024:.1f}MB"
+                date_str = book.added_at.strftime('%m-%d') if book.added_at else ""
+                
+                message += f"{i:02d}. 📖 {book.title}\n"
+                message += f"    👤 {author_name} | {file_format.upper()} | {size_str} | {date_str}\n"
+                message += f"    🆔 /download {book.id}\n"
             
-            message += f"\n💡 使用 /download <ID> 下载书籍"
+            # 构建翻页按钮
+            keyboard = []
+            nav_row = []
             
-            await update.message.reply_text(message)
+            if page > 1:
+                nav_row.append(InlineKeyboardButton("⬅️ 上一页", callback_data=f"recent:{page-1}"))
+            
+            nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+            
+            if page < total_pages:
+                nav_row.append(InlineKeyboardButton("下一页 ➡️", callback_data=f"recent:{page+1}"))
+            
+            if nav_row:
+                keyboard.append(nav_row)
+            
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            
+            if is_callback:
+                await update.callback_query.edit_message_text(message, reply_markup=reply_markup)
+            else:
+                await update.message.reply_text(message, reply_markup=reply_markup)
             
         except Exception as e:
             logger.error(f"获取最新书籍失败: {e}")
-            await update.message.reply_text("❌ 获取失败，请稍后重试")
+            msg = "❌ 获取失败，请稍后重试"
+            if is_callback:
+                await update.callback_query.answer(msg, show_alert=True)
+            else:
+                await update.message.reply_text(msg)
+
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理回调查询（按钮点击）"""
+    query = update.callback_query
+    await query.answer()  # 确认收到回调
+    
+    telegram_id = str(update.effective_user.id)
+    data = query.data
+    
+    if data == "noop":
+        return
+    
+    # 解析回调数据
+    if data.startswith("search:"):
+        # 搜索翻页: search:<keyword>:<page>
+        parts = data.split(":", 2)
+        if len(parts) == 3:
+            keyword = parts[1]
+            try:
+                page = int(parts[2])
+                await _perform_search(update, telegram_id, keyword, page, is_callback=True)
+            except ValueError:
+                await query.answer("无效的页码", show_alert=True)
+    
+    elif data.startswith("recent:"):
+        # 最新书籍翻页: recent:<page>
+        parts = data.split(":")
+        if len(parts) == 2:
+            try:
+                page = int(parts[1])
+                await _perform_recent(update, telegram_id, page, is_callback=True)
+            except ValueError:
+                await query.answer("无效的页码", show_alert=True)
+    
+    elif data.startswith("download:"):
+        # 下载书籍: download:<book_id>
+        parts = data.split(":")
+        if len(parts) == 2:
+            try:
+                book_id = int(parts[1])
+                await _perform_download(update, telegram_id, book_id, is_callback=True)
+            except ValueError:
+                await query.answer("无效的书籍ID", show_alert=True)
+
+
+async def _perform_download(update: Update, telegram_id: str, book_id: int, is_callback: bool = False):
+    """执行下载"""
+    async for db in get_db():
+        try:
+            # 获取用户
+            user = await get_user_by_telegram_id(db, telegram_id)
+            if not user:
+                msg = "❌ 未绑定账号"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                return
+            
+            # 获取书籍
+            result = await db.execute(select(Book).where(Book.id == book_id))
+            book = result.scalar_one_or_none()
+            
+            if not book:
+                msg = "❌ 书籍不存在"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                return
+            
+            # 检查权限
+            if not await check_book_access(user, book.id, db):
+                msg = "❌ 无权访问此书籍"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                return
+            
+            # 获取书籍版本
+            versions_result = await db.execute(
+                select(BookVersion)
+                .where(BookVersion.book_id == book_id)
+                .order_by(desc(BookVersion.is_primary))
+            )
+            versions = versions_result.scalars().all()
+            
+            if not versions:
+                msg = "❌ 此书籍没有可用文件"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                return
+            
+            version = versions[0]
+            
+            # 检查文件大小
+            if version.file_size > settings.telegram.max_file_size:
+                msg = f"❌ 文件太大 ({version.file_size / 1024 / 1024:.1f}MB)"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                return
+            
+            # 发送文件
+            if is_callback:
+                await update.callback_query.answer("📤 正在发送文件...")
+            
+            message = update.callback_query.message if is_callback else update.message
+            
+            with open(version.file_path, 'rb') as f:
+                await message.reply_document(
+                    document=f,
+                    filename=version.file_name,
+                    caption=f"📖 {book.title}\n格式: {version.file_format.upper()}"
+                )
+            
+        except FileNotFoundError:
+            msg = "❌ 文件不存在"
+            if is_callback:
+                await update.callback_query.answer(msg, show_alert=True)
+        except Exception as e:
+            logger.error(f"下载失败: {e}")
+            msg = "❌ 下载失败，请稍后重试"
+            if is_callback:
+                await update.callback_query.answer(msg, show_alert=True)
 
 
 async def library_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

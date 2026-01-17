@@ -6,7 +6,7 @@ from typing import Optional
 
 from telegram import Update
 from telegram import BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 from app.config import settings
 from app.web.routes.settings import load_telegram_settings
@@ -22,6 +22,7 @@ from app.bot.handlers import (
     download_handler,
     formats_handler,
     progress_handler,
+    callback_handler,
 )
 
 
@@ -67,6 +68,9 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("download", download_handler))
             self.application.add_handler(CommandHandler("formats", formats_handler))
             self.application.add_handler(CommandHandler("progress", progress_handler))
+            
+            # 注册回调查询处理器（用于翻页按钮）
+            self.application.add_handler(CallbackQueryHandler(callback_handler))
             
             # 初始化应用
             await self.application.initialize()
