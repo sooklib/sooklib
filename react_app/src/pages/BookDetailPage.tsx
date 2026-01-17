@@ -15,6 +15,7 @@ import {
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { formatDateShort, formatDateTime, formatRelativeTime } from '../utils/dateUtils'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
 interface TagInfo {
   id: number
@@ -360,6 +361,9 @@ export default function BookDetailPage() {
 
   const hasProgress = readingProgress && readingProgress.progress > 0
   const progressPercent = readingProgress ? Math.round(readingProgress.progress * 100) : 0
+
+  // 设置页面标题
+  useDocumentTitle(book?.title || '书籍详情')
 
   return (
     <Box sx={{ p: 3 }}>

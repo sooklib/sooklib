@@ -11,11 +11,13 @@ import { BookSummary, LibrarySummary } from '../types'
 import BookCard from '../components/BookCard'
 import Pagination from '../components/Pagination'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
 interface TagInfo {
   id: number
   name: string
   type: string
+  book_count?: number
 }
 
 interface BookResponse {
@@ -43,6 +45,7 @@ export default function LibraryPage() {
   const navigate = useNavigate()
   const { coverSize, setCoverSize, paginationMode } = useSettingsStore()
   
+  
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
@@ -66,7 +69,6 @@ export default function LibraryPage() {
 
   useEffect(() => {
     loadLibraries()
-    loadTags()
   }, [])
 
   useEffect(() => {
@@ -75,6 +77,13 @@ export default function LibraryPage() {
     }
   }, [libraryId])
 
+  // 书库变化时重新加载标签
+  useEffect(() => {
+    loadTags()
+    // 清除已选标签（因为新书库可能没有这些标签）
+    setSelectedTags([])
+  }, [selectedLibrary])
+
   useEffect(() => {
     setPage(1)
     setHasMore(true)
@@ -82,16 +91,30 @@ export default function LibraryPage() {
     loadBooks(1, false)
   }, [selectedLibrary, selectedTags, selectedFormats, paginationMode])
 
-  // 加载标签列表
+  // 加载标签列表（根据选中的书库）
   const loadTags = async () => {
     try {
-      // API 直接返回标签数组，不是 { tags: [...] } 格式
-      const response = await api.get<TagInfo[]>('/api/tags')
-      // 处理两种可能的返回格式
-      const tags = Array.isArray(response.data) ? response.data : (response.data as any).tags || []
+      let url: string
+      if (selectedLibrary) {
+        // 加载指定书库的标签（带数量）
+        url = `/api/tags/library/${selectedLibrary}`
+      } else {
+        // 加载所有书库的标签（带数量）
+        url = '/api/tags/all-libraries'
+      }
+      const response = await api.get<TagInfo[]>(url)
+      const tags = Array.isArray(response.data) ? response.data : []
       setAllTags(tags)
     } catch (err) {
       console.error('加载标签失败:', err)
+      // 如果新API失败，回退到旧API
+      try {
+        const response = await api.get<TagInfo[]>('/api/tags')
+        const tags = Array.isArray(response.data) ? response.data : (response.data as any).tags || []
+        setAllTags(tags)
+      } catch (fallbackErr) {
+        console.error('加载标签失败(fallback):', fallbackErr)
+      }
     }
   }
 
@@ -240,6 +263,9 @@ export default function LibraryPage() {
   }
 
   const currentLibrary = libraries.find((lib) => lib.id === selectedLibrary)
+
+  // 设置页面标题
+  useDocumentTitle(currentLibrary?.name || '书库')
 
   // 渲染底部分页/加载组件
   const renderPagination = () => {
@@ -414,7 +440,10 @@ export default function LibraryPage() {
               <Autocomplete
                 multiple
                 options={allTags}
-                getOptionLabel={(option) => option.name}
+                getOptionLabel={(option) => option.book_count !== undefined 
+                  ? `${option.name} (${option.book_count})`
+                  : option.name
+                }
                 value={selectedTags}
                 onChange={(_, newValue) => setSelectedTags(newValue)}
                 renderInput={(params) => (
@@ -423,6 +452,18 @@ export default function LibraryPage() {
                     placeholder="选择标签..."
                     size="small"
                   />
+                )}
+                renderOption={(props, option) => (
+                  <li {...props}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                      <span>{option.name}</span>
+                      {option.book_count !== undefined && (
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+                          {option.book_count}
+                        </Typography>
+                      )}
+                    </Box>
+                  </li>
                 )}
                 renderTags={(value, getTagProps) =>
                   value.map((option, index) => (

@@ -8,6 +8,7 @@ import { Search, Clear } from '@mui/icons-material'
 import api from '../services/api'
 import { BookSummary } from '../types'
 import BookCard from '../components/BookCard'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
 interface SearchResponse {
   books: Array<{
@@ -30,6 +31,10 @@ export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   
   const [query, setQuery] = useState(searchParams.get('q') || '')
+  
+  // 设置页面标题
+  useDocumentTitle(query ? `搜索: ${query}` : '搜索')
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [books, setBooks] = useState<BookSummary[]>([])

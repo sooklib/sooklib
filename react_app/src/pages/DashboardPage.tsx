@@ -8,8 +8,12 @@ import BookCard from '../components/BookCard'
 import ContinueReadingCard from '../components/ContinueReadingCard'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
 export default function DashboardPage() {
+  // 设置页面标题
+  useDocumentTitle('首页')
+  
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const { coverSize } = useSettingsStore()
