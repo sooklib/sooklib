@@ -26,12 +26,18 @@ from app.core.websocket import manager
 class BackgroundScanner:
     """后台扫描器"""
     
+    # 最大错误日志条数（防止过多错误占用存储）
+    MAX_ERROR_LOGS = 100
+    
     def __init__(self):
         self.extractor = Extractor()
         self.txt_parser = None  # 将在 worker 中初始化
         self.epub_parser = EpubParser()
         self.mobi_parser = MobiParser()
         self.supported_formats = settings.scanner.supported_formats
+        
+        # 扫描过程中的错误日志（格式: [{"file": ..., "error": ...}, ...]）
+        self._error_logs: List[dict] = []
         
         # 创建异步引擎（用于后台任务）
         self.engine = create_async_engine(
@@ -100,6 +106,11 @@ class BackgroundScanner:
             task_id: 任务ID
             library_id: 书库ID
         """
+        import json
+        
+        # 重置错误日志
+        self._error_logs = []
+        
         async with self.get_session() as db:
             try:
                 # 获取任务
@@ -129,6 +140,11 @@ class BackgroundScanner:
                 task.status = 'completed'
                 task.completed_at = datetime.utcnow()
                 task.progress = 100
+                
+                # 保存错误日志到 error_message（JSON 格式）
+                if self._error_logs:
+                    task.error_message = json.dumps(self._error_logs, ensure_ascii=False)[:10000]
+                
                 await db.commit()
                 
                 # 发送完成状态
@@ -144,7 +160,12 @@ class BackgroundScanner:
                     task = await db.get(ScanTask, task_id)
                     if task:
                         task.status = 'failed'
-                        task.error_message = str(e)[:1000]  # 限制长度
+                        # 保存主错误信息，并附加已收集的错误日志
+                        error_data = {
+                            "main_error": str(e)[:1000],
+                            "file_errors": self._error_logs
+                        }
+                        task.error_message = json.dumps(error_data, ensure_ascii=False)[:10000]
                         task.completed_at = datetime.utcnow()
                         await db.commit()
                         
@@ -286,7 +307,16 @@ class BackgroundScanner:
                 
             except Exception as e:
                 task.error_count += 1
-                log.error(f"处理文件失败: {file_path}, 错误: {e}")
+                error_msg = str(e)[:200]  # 限制错误消息长度
+                log.error(f"处理文件失败: {file_path}, 错误: {error_msg}")
+                
+                # 收集错误日志（限制数量）
+                if len(self._error_logs) < self.MAX_ERROR_LOGS:
+                    self._error_logs.append({
+                        "file": str(file_path),
+                        "error": error_msg,
+                        "type": type(e).__name__
+                    })
         
         # 批量提交
         await db.commit()

@@ -48,6 +48,17 @@ interface ScanTask {
   created_at: string
 }
 
+interface ScanErrorLog {
+  file: string
+  error: string
+  type: string
+}
+
+interface ScanErrorData {
+  main_error?: string
+  file_errors?: ScanErrorLog[]
+}
+
 interface TagInfo {
   id: number
   name: string
@@ -204,6 +215,12 @@ export default function LibrariesTab() {
   const [batchAnalyzeResult, setBatchAnalyzeResult] = useState<BatchAnalyzeResult | null>(null)
   const [batchAnalyzeLibraryId, setBatchAnalyzeLibraryId] = useState<number | null>(null)
   const [batchAnalyzeApplyResults, setBatchAnalyzeApplyResults] = useState(false)
+  
+  // 扫描错误详情
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false)
+  const [errorDialogTask, setErrorDialogTask] = useState<ScanTask | null>(null)
+  const [parsedErrors, setParsedErrors] = useState<ScanErrorLog[] | null>(null)
+  const [mainError, setMainError] = useState<string | null>(null)
   
   // 表单数据
   const [formData, setFormData] = useState({
@@ -1011,6 +1028,38 @@ export default function LibrariesTab() {
     }
   }
 
+  // 查看错误详情
+  const handleViewErrors = (task: ScanTask) => {
+    setErrorDialogTask(task)
+    
+    // 解析 error_message JSON
+    if (task.error_message) {
+      try {
+        const data = JSON.parse(task.error_message)
+        // 判断是任务失败（有 main_error）还是部分文件错误（数组）
+        if (data.main_error) {
+          setMainError(data.main_error)
+          setParsedErrors(data.file_errors || [])
+        } else if (Array.isArray(data)) {
+          setMainError(null)
+          setParsedErrors(data)
+        } else {
+          setMainError(null)
+          setParsedErrors(null)
+        }
+      } catch {
+        // 不是 JSON，直接显示为主错误
+        setMainError(task.error_message)
+        setParsedErrors(null)
+      }
+    } else {
+      setMainError(null)
+      setParsedErrors(null)
+    }
+    
+    setErrorDialogOpen(true)
+  }
+
   const getStatusChip = (status: ScanTask['status']) => {
     const statusConfig: Record<ScanTask['status'], { label: string; color: any; icon: any }> = {
       pending: { label: '等待中', color: 'default', icon: <Schedule fontSize="small" /> },
@@ -1422,8 +1471,18 @@ export default function LibrariesTab() {
                                   <TableCell align="right">{task.added_books}</TableCell>
                                   <TableCell align="right">{task.skipped_books}</TableCell>
                                   <TableCell align="right">
-                                    {task.error_count > 0 ? (
-                                      <Typography variant="body2" color="error">{task.error_count}</Typography>
+                                    {task.error_count > 0 || task.status === 'failed' ? (
+                                      <Button
+                                        size="small"
+                                        color="error"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleViewErrors(task)
+                                        }}
+                                        sx={{ minWidth: 'auto', p: 0.5 }}
+                                      >
+                                        {task.error_count > 0 ? task.error_count : '详情'}
+                                      </Button>
                                     ) : (
                                       task.error_count
                                     )}
@@ -2070,6 +2129,106 @@ export default function LibrariesTab() {
           >
             {applyingExtract ? '应用中...' : `应用选中的 ${selectedChanges.size} 项变更`}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 扫描错误详情对话框 */}
+      <Dialog
+        open={errorDialogOpen}
+        onClose={() => setErrorDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ErrorIcon color="error" />
+          扫描错误详情
+          {errorDialogTask && (
+            <Chip
+              label={errorDialogTask.status === 'failed' ? '任务失败' : `${errorDialogTask.error_count} 个文件错误`}
+              size="small"
+              color="error"
+              sx={{ ml: 1 }}
+            />
+          )}
+        </DialogTitle>
+        <DialogContent>
+          {errorDialogTask && (
+            <Box>
+              {/* 任务信息 */}
+              <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Chip label={`开始时间: ${formatDate(errorDialogTask.started_at)}`} size="small" variant="outlined" />
+                <Chip label={`文件总数: ${errorDialogTask.total_files}`} size="small" variant="outlined" />
+                <Chip label={`已处理: ${errorDialogTask.processed_files}`} size="small" variant="outlined" />
+                <Chip label={`添加: ${errorDialogTask.added_books}`} size="small" variant="outlined" color="success" />
+                <Chip label={`跳过: ${errorDialogTask.skipped_books}`} size="small" variant="outlined" />
+              </Box>
+
+              {/* 主错误 */}
+              {mainError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>任务失败原因</Typography>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
+                    {mainError}
+                  </Typography>
+                </Alert>
+              )}
+
+              {/* 文件错误列表 */}
+              {parsedErrors && parsedErrors.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    文件处理错误 ({parsedErrors.length} 个)
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>文件路径</TableCell>
+                          <TableCell>错误类型</TableCell>
+                          <TableCell>错误信息</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {parsedErrors.map((err, index) => (
+                          <TableRow key={index}>
+                            <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={err.file}>
+                              {err.file}
+                            </TableCell>
+                            <TableCell>
+                              <Chip label={err.type || '未知'} size="small" color="warning" variant="outlined" />
+                            </TableCell>
+                            <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={err.error}>
+                              {err.error}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {/* 无法解析的错误信息 */}
+              {!mainError && !parsedErrors && errorDialogTask.error_message && (
+                <Alert severity="warning">
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 0.5 }}>原始错误信息</Typography>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                    {errorDialogTask.error_message}
+                  </Typography>
+                </Alert>
+              )}
+
+              {/* 无错误信息 */}
+              {!mainError && !parsedErrors && !errorDialogTask.error_message && (
+                <Alert severity="info">
+                  没有详细的错误信息
+                </Alert>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setErrorDialogOpen(false)}>关闭</Button>
         </DialogActions>
       </Dialog>
     </Box>
