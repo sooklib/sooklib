@@ -4,7 +4,8 @@ import {
   Box, Typography, TextField, InputAdornment, Grid,
   CircularProgress, Alert, Chip, Accordion, AccordionSummary, AccordionDetails,
   FormControl, InputLabel, Select, MenuItem, OutlinedInput, Checkbox, ListItemText, Button,
-  Stack, Paper, List, ListItem, ListItemButton, ListItemIcon, ClickAwayListener
+  Stack, Paper, List, ListItem, ListItemButton, ListItemIcon, ClickAwayListener,
+  Autocomplete
 } from '@mui/material'
 import { Search, Clear, FilterList, ExpandMore, Person, Book as BookIcon } from '@mui/icons-material'
 import api, { commonApi, SearchSuggestion } from '../services/api'
@@ -405,25 +406,42 @@ export default function SearchPage() {
         </AccordionSummary>
         <AccordionDetails>
           <Grid container spacing={2}>
-            {/* 作者筛选 */}
+            {/* 作者筛选 - 使用 Autocomplete 支持搜索 */}
             <Grid item xs={12} sm={6} md={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel>作者</InputLabel>
-                <Select
-                  value={selectedAuthor}
-                  label="作者"
-                  onChange={(e) => setSelectedAuthor(e.target.value as number | '')}
-                >
-                  <MenuItem value="">
-                    <em>全部作者</em>
-                  </MenuItem>
-                  {authors.map((author) => (
-                    <MenuItem key={author.id} value={author.id}>
-                      {author.name} ({author.book_count})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                size="small"
+                options={authors}
+                getOptionLabel={(option) => `${option.name} (${option.book_count})`}
+                value={authors.find(a => a.id === selectedAuthor) || null}
+                onChange={(_, newValue) => setSelectedAuthor(newValue?.id || '')}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="作者"
+                    placeholder="输入关键词搜索作者..."
+                  />
+                )}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                      <Typography variant="body2">{option.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {option.book_count} 本
+                      </Typography>
+                    </Box>
+                  </li>
+                )}
+                noOptionsText="未找到匹配的作者"
+                clearText="清除"
+                openText="展开"
+                closeText="收起"
+                filterOptions={(options, { inputValue }) => {
+                  const filterValue = inputValue.toLowerCase()
+                  return options.filter(option => 
+                    option.name.toLowerCase().includes(filterValue)
+                  )
+                }}
+              />
             </Grid>
             
             {/* 书库筛选 */}

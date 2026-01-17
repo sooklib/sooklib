@@ -160,6 +160,36 @@ novel-library/
 | `/api/docs` | API文档（Swagger UI） |
 | `/opds/` | OPDS目录 |
 
+## 📱 OPDS 阅读器使用
+
+OPDS 支持 HTTP Basic Auth 认证，使用您的 Novel Library 账号密码登录。
+
+### 在常见阅读器中配置
+
+**KOReader / 静读天下 / Moon+ Reader 等**：
+
+1. 打开 OPDS 目录设置
+2. 输入目录地址：`http://your-server:8080/opds/`
+3. 在认证设置中填写：
+   - 用户名：您的 Novel Library 用户名
+   - 密码：您的密码
+4. 保存并刷新
+
+**浏览器直接访问**：
+
+浏览器访问 `/opds/` 时会弹出 HTTP Basic Auth 登录框，输入用户名和密码即可。
+
+### OPDS 目录结构
+
+| 端点 | 说明 |
+|------|------|
+| `/opds/` | 根目录（导航） |
+| `/opds/recent` | 最近添加的书籍 |
+| `/opds/authors` | 作者索引 |
+| `/opds/author/{id}` | 特定作者的书籍 |
+| `/opds/search?q=关键词` | 搜索书籍 |
+| `/opds/download/{book_id}` | 下载书籍 |
+
 ## 📖 文档
 
 - [安装指南](MIGRATION.md)
