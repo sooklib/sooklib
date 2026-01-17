@@ -39,6 +39,7 @@ def build_opds_root(base_url: str) -> str:
     now = format_datetime(datetime.utcnow())
     
     xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="/static/opds.xsl"?>
 <feed xmlns="http://www.w3.org/2005/Atom"
       xmlns:opds="http://opds-spec.org/2010/catalog">
   <id>{base_url}/opds</id>
@@ -189,6 +190,7 @@ def build_opds_acquisition_feed(
     
     # 构建 Feed
     xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="/static/opds.xsl"?>
 <feed xmlns="http://www.w3.org/2005/Atom"
       xmlns:opds="http://opds-spec.org/2010/catalog">
   <id>{feed_id}</id>
@@ -238,6 +240,7 @@ def build_opds_navigation_feed(
     now = format_datetime(datetime.utcnow())
     
     xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="/static/opds.xsl"?>
 <feed xmlns="http://www.w3.org/2005/Atom"
       xmlns:opds="http://opds-spec.org/2010/catalog">
   <id>{feed_id}</id>
