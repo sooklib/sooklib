@@ -15,8 +15,7 @@ services:
       - ./covers:/app/covers
       # 配置文件
       - ./config:/app/config
-      # 备份目录
-      - ./backups:/app/backups
+      # 备份目录（在 ./data/backups/ 中，已包含在 ./data:/app/data 挂载内）
     environment:
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
