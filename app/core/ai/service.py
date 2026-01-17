@@ -385,7 +385,7 @@ class AIService:
         response = await self.chat([
             {"role": "system", "content": "只返回纯JSON，不要任何解释或markdown。"},
             {"role": "user", "content": prompt}
-        ], max_tokens=4000)
+        ])  # 使用用户配置的max_tokens
         
         if not response.success:
             return {"success": False, "error": response.error}
