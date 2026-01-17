@@ -53,6 +53,14 @@ class AIService:
                 content = result['choices'][0]['message']['content']
                 usage = result.get('usage')
                 
+                # 检查空响应
+                if not content or content.strip() == "":
+                    log.warning(f"AI返回空响应: {result}")
+                    return AIResponse(
+                        success=False, 
+                        error="AI返回空响应，可能是prompt过长或模型不支持此任务"
+                    )
+                
                 return AIResponse(
                     success=True,
                     content=content,
@@ -62,7 +70,13 @@ class AIService:
         except httpx.TimeoutException:
             return AIResponse(success=False, error="请求超时")
         except httpx.HTTPStatusError as e:
-            return AIResponse(success=False, error=f"HTTP错误: {e.response.status_code}")
+            error_detail = ""
+            try:
+                error_body = e.response.json()
+                error_detail = error_body.get("error", {}).get("message", str(e.response.text))
+            except:
+                error_detail = str(e.response.text)[:200]
+            return AIResponse(success=False, error=f"HTTP错误 {e.response.status_code}: {error_detail}")
         except Exception as e:
             log.error(f"OpenAI API调用失败: {e}")
             return AIResponse(success=False, error=str(e))
@@ -331,13 +345,13 @@ class AIService:
             {"role": "user", "content": "请回复'连接成功'"}
         ], max_tokens=20)
     
-    async def analyze_filename_patterns(self, filenames: List[str], sample_size: int = 50) -> Dict[str, Any]:
+    async def analyze_filename_patterns(self, filenames: List[str], sample_size: int = 30) -> Dict[str, Any]:
         """
         使用AI分析文件名模式，生成解析规则建议
         
         Args:
             filenames: 文件名列表
-            sample_size: 采样数量（避免token过多）
+            sample_size: 采样数量（避免token过多，默认30）
         
         Returns:
             分析结果，包含建议的正则表达式规则
@@ -345,15 +359,17 @@ class AIService:
         if not self.config.is_enabled():
             return {"success": False, "error": "AI功能未启用"}
         
-        # 采样
+        # 采样 - 限制数量避免超出上下文
         import random
-        if len(filenames) > sample_size:
-            samples = random.sample(filenames, sample_size)
+        actual_sample = min(sample_size, len(filenames), 30)  # 最多30个
+        if len(filenames) > actual_sample:
+            samples = random.sample(filenames, actual_sample)
         else:
-            samples = filenames
+            samples = filenames[:actual_sample]
         
-        # 构建文件名列表
-        filename_list = "\n".join([f"- {fn}" for fn in samples[:30]])  # 限制数量
+        # 构建文件名列表，限制每个文件名长度
+        truncated_samples = [fn[:80] if len(fn) > 80 else fn for fn in samples]
+        filename_list = "\n".join([f"- {fn}" for fn in truncated_samples])
         
         prompt = f"""请分析以下小说文件名，识别其命名模式并生成正则表达式解析规则。
 
