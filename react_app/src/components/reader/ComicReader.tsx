@@ -13,48 +13,102 @@ interface ComicReaderProps {
   currentPage: number;
   onPageLoad: (index: number) => void;
   width?: number;
+  scale?: number;
 }
 
-export default function ComicReader({ bookId, images, currentPage, onPageLoad, width }: ComicReaderProps) {
+export default function ComicReader({ bookId, images, currentPage, onPageLoad, width, scale = 1.0 }: ComicReaderProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const imageCache = useState<Map<number, string>>(new Map())[0];
+
+  // 加载指定页面的图片
+  const loadImage = async (index: number): Promise<string | null> => {
+    if (index < 0 || index >= images.length) return null;
+    
+    // 如果缓存中有，直接返回
+    if (imageCache.has(index)) {
+      return imageCache.get(index)!;
+    }
+
+    try {
+      const response = await api.get(`/api/books/${bookId}/comic/page/${index}`, {
+        responseType: 'blob'
+      });
+      
+      const url = URL.createObjectURL(response.data);
+      imageCache.set(index, url);
+      return url;
+    } catch (err) {
+      console.error(`加载第 ${index + 1} 页失败:`, err);
+      return null;
+    }
+  };
+
+  // 清理不需要的缓存
+  const cleanCache = (currentIndex: number) => {
+    const keepRange = 5; // 保留前后5页
+    const keysToDelete: number[] = [];
+    
+    for (const key of imageCache.keys()) {
+      if (key < currentIndex - keepRange || key > currentIndex + keepRange) {
+        keysToDelete.push(key);
+      }
+    }
+    
+    keysToDelete.forEach(key => {
+      const url = imageCache.get(key);
+      if (url) URL.revokeObjectURL(url);
+      imageCache.delete(key);
+    });
+  };
 
   useEffect(() => {
     let mounted = true;
-    const loadPage = async () => {
-      if (currentPage < 0 || currentPage >= images.length) return;
-      
+    
+    const loadCurrentAndPreload = async () => {
       setLoading(true);
       setError(false);
       
-      try {
-        const response = await api.get(`/api/books/${bookId}/comic/page/${currentPage}`, {
-          responseType: 'blob'
-        });
-        
-        const url = URL.createObjectURL(response.data);
-        if (mounted) {
+      // 1. 加载当前页
+      const url = await loadImage(currentPage);
+      
+      if (mounted) {
+        if (url) {
           setImageUrl(url);
           setLoading(false);
           onPageLoad(currentPage);
-        }
-      } catch (err) {
-        console.error('加载图片失败:', err);
-        if (mounted) {
+        } else {
           setError(true);
           setLoading(false);
         }
       }
+
+      // 2. 预加载后 2 页
+      if (currentPage + 1 < images.length) loadImage(currentPage + 1);
+      if (currentPage + 2 < images.length) loadImage(currentPage + 2);
+      
+      // 3. 预加载前 1 页
+      if (currentPage > 0) loadImage(currentPage - 1);
+      
+      // 4. 清理旧缓存
+      cleanCache(currentPage);
     };
     
-    loadPage();
+    loadCurrentAndPreload();
     
     return () => {
       mounted = false;
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
     };
   }, [bookId, currentPage, images]);
+
+  // 组件卸载时清理所有缓存
+  useEffect(() => {
+    return () => {
+      imageCache.forEach(url => URL.revokeObjectURL(url));
+      imageCache.clear();
+    };
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: '100vh', justifyContent: 'center' }}>
@@ -75,10 +129,13 @@ export default function ComicReader({ bookId, images, currentPage, onPageLoad, w
           src={imageUrl} 
           alt={`Page ${currentPage + 1}`}
           style={{ 
-            maxWidth: '100%', 
-            maxHeight: '100vh', 
+            maxWidth: scale > 1 ? 'none' : '100%', 
+            maxHeight: scale > 1 ? 'none' : '100vh', 
             objectFit: 'contain',
-            width: width ? `${width}px` : 'auto'
+            width: width ? `${width}px` : 'auto',
+            transform: `scale(${scale})`,
+            transformOrigin: 'top center',
+            transition: 'transform 0.2s ease-out'
           }}
         />
       )}

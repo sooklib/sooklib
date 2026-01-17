@@ -12,11 +12,11 @@ interface PDFReaderProps {
   token: string | null;
   onLoadSuccess: (total: number) => void;
   currentPage: number;
-  scale?: number;
+  scale: number;
   width?: number;
 }
 
-export default function PDFReader({ url, token, onLoadSuccess, currentPage, scale = 1.0, width }: PDFReaderProps) {
+export default function PDFReader({ url, token, onLoadSuccess, currentPage, scale, width }: PDFReaderProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
 
   function onDocumentLoadSuccess({ numPages }: { numPages: number }) {

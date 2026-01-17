@@ -10,7 +10,8 @@ import {
   ArrowBack, Menu, Settings, TextFields, FormatLineSpacing,
   ChevronLeft, ChevronRight, Fullscreen, FullscreenExit,
   PlayArrow, Stop, Timer, SpaceBar, Bookmark, BookmarkBorder,
-  Delete, Add, Search, Close, Edit, FormatColorFill, Download
+  Delete, Add, Search, Close, Edit, FormatColorFill, Download,
+  ZoomIn, ZoomOut, RestartAlt
 } from '@mui/icons-material'
 import ePub, { Book, Rendition } from 'epubjs'
 import api, { readingStatsApi } from '../services/api'
@@ -142,6 +143,9 @@ export default function ReaderPage() {
   
   // 漫画图片列表
   const [comicImages, setComicImages] = useState<ComicImage[]>([])
+  
+  // 图片/PDF 缩放
+  const [scale, setScale] = useState(1.0)
 
   // 章节加载状态（新逻辑）
   const [chapters, setChapters] = useState<TocChapter[]>([])  // 完整目录
@@ -484,6 +488,19 @@ export default function ReaderPage() {
     } else {
       setShowToolbar(!showToolbar)
     }
+  }
+
+  // 缩放控制
+  const handleZoomIn = () => {
+    setScale(prev => Math.min(prev + 0.25, 3.0))
+  }
+
+  const handleZoomOut = () => {
+    setScale(prev => Math.max(prev - 0.25, 0.5))
+  }
+
+  const handleResetZoom = () => {
+    setScale(1.0)
   }
 
   // 格式化阅读时长
@@ -1545,7 +1562,7 @@ export default function ReaderPage() {
           )}
           
           {/* 批注按钮 (仅TXT) */}
-          {!isEpub && (
+          {!isEpub && format === 'txt' && (
             <IconButton 
               color="inherit" 
               onClick={(e) => { 
@@ -1556,6 +1573,21 @@ export default function ReaderPage() {
             >
               <Edit />
             </IconButton>
+          )}
+
+          {/* 缩放按钮 (PDF/漫画) */}
+          {(format === 'pdf' || format === 'comic') && (
+            <>
+              <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); handleZoomOut() }}>
+                <ZoomOut />
+              </IconButton>
+              <Typography variant="caption" sx={{ mx: 0.5, minWidth: 32, textAlign: 'center' }}>
+                {Math.round(scale * 100)}%
+              </Typography>
+              <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); handleZoomIn() }}>
+                <ZoomIn />
+              </IconButton>
+            </>
           )}
           
           <IconButton color="inherit" onClick={(e) => { e.stopPropagation(); setTocOpen(true) }}>
@@ -1593,7 +1625,7 @@ export default function ReaderPage() {
             token={token}
             currentPage={currentChapter}
             onLoadSuccess={(total) => setTotalChapters(total)}
-            scale={1.0}
+            scale={scale}
           />
         </Box>
       ) : format === 'comic' ? (
@@ -1604,6 +1636,7 @@ export default function ReaderPage() {
               images={comicImages}
               currentPage={currentChapter}
               onPageLoad={() => {}}
+              scale={scale}
             />
           )}
         </Box>
