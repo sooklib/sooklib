@@ -10,9 +10,9 @@ import api from '../../services/api'
 import { useAuthStore } from '../../stores/authStore'
 
 interface BackupInfo {
-  id: string
-  filename: string
-  size: number
+  backup_id: string
+  file_name: string
+  file_size: number
   created_at: string
   includes: string[]
   description?: string
@@ -100,7 +100,7 @@ export default function BackupTab() {
 
   const handleDownload = (backup: BackupInfo) => {
     // 使用 token 进行下载鉴权
-    window.open(`/api/admin/backup/download/${backup.id}?token=${token}`, '_blank')
+    window.open(`/api/admin/backup/download/${backup.backup_id}?token=${token}`, '_blank')
   }
 
   const handleUploadClick = () => {
@@ -142,9 +142,9 @@ export default function BackupTab() {
   }
 
   const handleDelete = async (backup: BackupInfo) => {
-    if (!confirm(`确定要删除备份 "${backup.id}" 吗？`)) return
+    if (!confirm(`确定要删除备份 "${backup.backup_id}" 吗？`)) return
     try {
-      await api.delete(`/api/admin/backup/${backup.id}`)
+      await api.delete(`/api/admin/backup/${backup.backup_id}`)
       setSuccess('备份已删除')
       loadData()
     } catch (err) {
@@ -163,7 +163,7 @@ export default function BackupTab() {
     try {
       setRestoring(true)
       await api.post('/api/admin/backup/restore', {
-        backup_id: selectedBackup.id,
+        backup_id: selectedBackup.backup_id,
         create_snapshot: true
       })
       setSuccess('备份恢复成功，请刷新页面')
@@ -329,13 +329,13 @@ export default function BackupTab() {
           </TableHead>
           <TableBody>
             {backups.map((backup) => (
-              <TableRow key={backup.id}>
+              <TableRow key={backup.backup_id}>
                 <TableCell>
                   <Typography variant="body2" fontFamily="monospace">
-                    {backup.id}
+                    {backup.backup_id}
                   </Typography>
                 </TableCell>
-                <TableCell>{formatSize(backup.size)}</TableCell>
+                <TableCell>{formatSize(backup.file_size)}</TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                     {backup.includes.map((item) => (
@@ -376,7 +376,7 @@ export default function BackupTab() {
             ⚠️ 此操作将覆盖现有数据！系统将在恢复前自动创建快照。
           </Alert>
           <Typography>
-            确定要恢复备份 <strong>{selectedBackup?.id}</strong> 吗？
+            确定要恢复备份 <strong>{selectedBackup?.backup_id}</strong> 吗？
           </Typography>
         </DialogContent>
         <DialogActions>
