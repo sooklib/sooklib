@@ -5,6 +5,7 @@ import asyncio
 from typing import Optional
 
 from telegram import Update
+from telegram import BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from app.config import settings
@@ -61,6 +62,20 @@ class TelegramBot:
             
             # 初始化应用
             await self.application.initialize()
+
+            # 设置 Bot 命令菜单
+            commands = [
+                BotCommand("start", "开始使用"),
+                BotCommand("help", "显示帮助信息"),
+                BotCommand("bind", "绑定账号"),
+                BotCommand("search", "搜索书籍"),
+                BotCommand("recent", "查看最新书籍"),
+                BotCommand("library", "浏览书库"),
+                BotCommand("download", "下载书籍"),
+                BotCommand("formats", "查看支持格式"),
+                BotCommand("progress", "查看阅读进度"),
+            ]
+            await self.application.bot.set_my_commands(commands)
             
             # 启动 Bot
             if settings.telegram.webhook_url:
