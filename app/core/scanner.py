@@ -126,6 +126,22 @@ class Scanner:
         
         return files
     
+    def _discover_files_generator(self, directory: Path):
+        """
+        发现目录中的所有支持的文件（生成器版本，节省内存）
+        
+        Args:
+            directory: 扫描目录
+            
+        Yields:
+            文件路径
+        """
+        for ext in self.supported_formats:
+            if self.recursive:
+                yield from directory.rglob(f'*{ext}')
+            else:
+                yield from directory.glob(f'*{ext}')
+    
     def _is_archive(self, file_path: Path) -> bool:
         """判断文件是否为压缩包"""
         archive_formats = ['.zip', '.rar', '.7z', '.iso', '.tar.gz', '.tar.bz2']
@@ -178,15 +194,22 @@ class Scanner:
             stats["skipped"] += 1
             return
         
-        # 智能提取简介（仅TXT，且没有简介时）
-        if file_path.suffix.lower() == '.txt' and not metadata.get('description'):
+        # TXT 文件：一次性读取内容用于简介和标签提取（内存优化）
+        txt_content = None
+        if file_path.suffix.lower() == '.txt':
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read(5000)  # 只读前5000字用于提取
-                    description = self.txt_parser.extract_description(content)
-                    if description:
-                        metadata['description'] = description
-                        log.debug(f"提取到简介: {len(description)}字")
+                    txt_content = f.read(5000)  # 只读前5000字，足够提取简介和标签
+            except Exception as e:
+                log.error(f"读取TXT内容失败: {file_path}, 错误: {e}")
+        
+        # 智能提取简介（仅TXT，且没有简介时）
+        if txt_content and not metadata.get('description'):
+            try:
+                description = self.txt_parser.extract_description(txt_content)
+                if description:
+                    metadata['description'] = description
+                    log.debug(f"提取到简介: {len(description)}字")
             except Exception as e:
                 log.error(f"提取简介失败: {file_path}, 错误: {e}")
         
@@ -196,12 +219,11 @@ class Scanner:
             # 从文件名提取
             auto_tags.extend(get_tags_from_filename(file_path.name))
             
-            # 从内容提取（仅TXT）
-            if file_path.suffix.lower() == '.txt':
+            # 从内容提取（仅TXT，复用已读内容）
+            if txt_content:
                 try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read(1000)  # 只读前1000字
-                        auto_tags.extend(get_tags_from_content(content))
+                    # 只用前1000字提取标签
+                    auto_tags.extend(get_tags_from_content(txt_content[:1000]))
                 except Exception as e:
                     log.error(f"从内容提取标签失败: {e}")
             
@@ -211,6 +233,9 @@ class Scanner:
                 log.debug(f"自动提取标签: {auto_tags}")
         except Exception as e:
             log.error(f"提取标签失败: {file_path}, 错误: {e}")
+        
+        # 释放内容引用，帮助 GC
+        txt_content = None
         
         # 去重检测（支持版本管理）
         action, book_id, reason = await self.deduplicator.check_duplicate(
