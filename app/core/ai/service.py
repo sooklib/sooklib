@@ -345,13 +345,13 @@ class AIService:
             {"role": "user", "content": "请回复'连接成功'"}
         ], max_tokens=20)
     
-    async def analyze_filename_patterns(self, filenames: List[str], sample_size: int = 30) -> Dict[str, Any]:
+    async def analyze_filename_patterns(self, filenames: List[str], sample_size: int = 15) -> Dict[str, Any]:
         """
         使用AI分析文件名模式，生成解析规则建议
         
         Args:
             filenames: 文件名列表
-            sample_size: 采样数量（避免token过多，默认30）
+            sample_size: 采样数量（避免token过多，默认15）
         
         Returns:
             分析结果，包含建议的正则表达式规则
@@ -359,62 +359,33 @@ class AIService:
         if not self.config.is_enabled():
             return {"success": False, "error": "AI功能未启用"}
         
-        # 采样 - 限制数量避免超出上下文
+        # 采样 - 限制数量避免超出上下文（减少到15个以应对reasoning模型）
         import random
-        actual_sample = min(sample_size, len(filenames), 30)  # 最多30个
+        actual_sample = min(sample_size, len(filenames), 15)  # 最多15个
         if len(filenames) > actual_sample:
             samples = random.sample(filenames, actual_sample)
         else:
             samples = filenames[:actual_sample]
         
         # 构建文件名列表，限制每个文件名长度
-        truncated_samples = [fn[:80] if len(fn) > 80 else fn for fn in samples]
+        truncated_samples = [fn[:60] if len(fn) > 60 else fn for fn in samples]
         filename_list = "\n".join([f"- {fn}" for fn in truncated_samples])
         
-        prompt = f"""请分析以下小说文件名，识别其命名模式并生成正则表达式解析规则。
+        # 简化prompt，减少token消耗
+        prompt = f"""分析以下{len(samples)}个小说文件名，生成正则表达式规则。
 
-文件名示例（共{len(filenames)}个，采样{len(samples)}个）：
+文件名：
 {filename_list}
 
-请分析这些文件名的命名规则，识别书名、作者名、额外信息（如系列名、卷数等）的位置。
+返回JSON（不要markdown代码块）：
+{{"patterns":[{{"name":"规则名","regex":"正则","title_group":1,"author_group":2}}],"analysis":"分析"}}
 
-返回JSON格式：
-{{
-    "patterns": [
-        {{
-            "name": "规则名称",
-            "description": "规则说明",
-            "regex": "正则表达式（使用捕获组）",
-            "title_group": 1,
-            "author_group": 2,
-            "extra_group": 0,
-            "examples": ["匹配的文件名示例"],
-            "confidence": 0.9
-        }}
-    ],
-    "analysis": "整体分析说明",
-    "common_separators": ["常见分隔符列表"],
-    "coverage_estimate": 0.8
-}}
-
-注意：
-1. 正则表达式需要兼容Python的re模块
-2. 捕获组从1开始编号，0表示该字段不存在
-3. 尽量覆盖所有命名模式
-4. 对于中文书名，注意《》「」『』等括号
-5. 常见模式如：
-   - 作者-书名.txt
-   - 【作者】书名.txt  
-   - 《书名》作者.txt
-   - 书名 BY作者.txt
-   - [系列名]书名-作者.txt
-
-返回纯JSON："""
+要求：正则兼容Python re模块，捕获组1=书名，2=作者。"""
         
         response = await self.chat([
-            {"role": "system", "content": "你是一个专业的文件名模式分析助手，擅长编写正则表达式。只返回JSON格式数据。"},
+            {"role": "system", "content": "只返回纯JSON，不要任何解释或markdown。"},
             {"role": "user", "content": prompt}
-        ], max_tokens=2000)
+        ], max_tokens=4000)
         
         if not response.success:
             return {"success": False, "error": response.error}
