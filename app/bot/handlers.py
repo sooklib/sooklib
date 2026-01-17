@@ -184,7 +184,7 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # 获取可访问的书库
-            library_ids = await get_accessible_library_ids(db, user)
+            library_ids = await get_accessible_library_ids(user, db)
             
             # 搜索书籍
             query = select(Book).where(
@@ -196,7 +196,11 @@ async def search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             books = result.scalars().all()
             
             # 应用权限过滤
-            books = await filter_books_by_access(db, user, books)
+            accessible_books = []
+            for book in books:
+                if await check_book_access(user, book.id, db):
+                    accessible_books.append(book)
+            books = accessible_books
             
             if not books:
                 await update.message.reply_text(f"未找到包含 '{keyword}' 的书籍")
@@ -246,7 +250,7 @@ async def recent_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # 获取可访问的书库
-            library_ids = await get_accessible_library_ids(db, user)
+            library_ids = await get_accessible_library_ids(user, db)
             
             # 获取最新书籍
             query = (
@@ -260,7 +264,11 @@ async def recent_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             books = result.scalars().all()
             
             # 应用权限过滤
-            books = await filter_books_by_access(db, user, books)
+            accessible_books = []
+            for book in books:
+                if await check_book_access(user, book.id, db):
+                    accessible_books.append(book)
+            books = accessible_books
             
             if not books:
                 await update.message.reply_text("暂无书籍")
@@ -383,7 +391,7 @@ async def download_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # 检查权限
-            if not await check_book_access(db, user, book):
+            if not await check_book_access(user, book.id, db):
                 await update.message.reply_text("❌ 无权访问此书籍")
                 return
             
@@ -465,7 +473,7 @@ async def formats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # 检查权限
-            if not await check_book_access(db, user, book):
+            if not await check_book_access(user, book.id, db):
                 await update.message.reply_text("❌ 无权访问此书籍")
                 return
             
@@ -543,7 +551,7 @@ async def progress_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     continue
                 
                 # 检查权限
-                if not await check_book_access(db, user, book):
+                if not await check_book_access(user, book.id, db):
                     continue
                 
                 status = "✅" if progress.finished else "📖"
