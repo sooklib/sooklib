@@ -1,5 +1,5 @@
-import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton, Chip, Button, IconButton, CircularProgress, Snackbar, Alert } from '@mui/material'
-import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout, PhotoSizeSelectLarge, ViewList, AllInclusive, Palette, Image, Check } from '@mui/icons-material'
+import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton, Chip, Button, IconButton, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material'
+import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout, PhotoSizeSelectLarge, ViewList, AllInclusive, Palette, Image, Check, Telegram, Link, LinkOff, ContentCopy, CheckCircle } from '@mui/icons-material'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore, PRESET_COLORS } from '../stores/themeStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -23,6 +23,19 @@ export default function ProfilePage() {
   })
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Telegram 绑定状态
+  const [telegramStatus, setTelegramStatus] = useState<{
+    is_bound: boolean
+    telegram_id: number | null
+    bot_enabled: boolean
+  } | null>(null)
+  const [telegramLoading, setTelegramLoading] = useState(true)
+  const [bindCode, setBindCode] = useState<string | null>(null)
+  const [bindDialogOpen, setBindDialogOpen] = useState(false)
+  const [bindCodeLoading, setBindCodeLoading] = useState(false)
+  const [unbindLoading, setUnbindLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+
   // 获取统计数据
   useEffect(() => {
     const fetchStats = async () => {
@@ -40,6 +53,63 @@ export default function ProfilePage() {
     }
     fetchStats()
   }, [])
+
+  // 获取 Telegram 绑定状态
+  useEffect(() => {
+    const fetchTelegramStatus = async () => {
+      try {
+        setTelegramLoading(true)
+        const res = await api.get('/api/user/telegram/status')
+        setTelegramStatus(res.data)
+      } catch (error) {
+        console.error('获取 Telegram 状态失败:', error)
+      } finally {
+        setTelegramLoading(false)
+      }
+    }
+    fetchTelegramStatus()
+  }, [])
+
+  // 生成绑定码
+  const handleGenerateBindCode = async () => {
+    try {
+      setBindCodeLoading(true)
+      const res = await api.post('/api/user/telegram/bind-code')
+      setBindCode(res.data.bind_code)
+      setBindDialogOpen(true)
+    } catch (error: unknown) {
+      console.error('生成绑定码失败:', error)
+      setSnackbar({ open: true, message: '生成绑定码失败', severity: 'error' })
+    } finally {
+      setBindCodeLoading(false)
+    }
+  }
+
+  // 解绑 Telegram
+  const handleUnbindTelegram = async () => {
+    if (!window.confirm('确定要解除 Telegram 绑定吗？')) return
+    
+    try {
+      setUnbindLoading(true)
+      await api.delete('/api/user/telegram/unbind')
+      setTelegramStatus(prev => prev ? { ...prev, is_bound: false, telegram_id: null } : null)
+      setSnackbar({ open: true, message: '已解除 Telegram 绑定', severity: 'success' })
+    } catch (error: unknown) {
+      console.error('解绑失败:', error)
+      setSnackbar({ open: true, message: '解绑失败', severity: 'error' })
+    } finally {
+      setUnbindLoading(false)
+    }
+  }
+
+  // 复制绑定码
+  const handleCopyBindCode = () => {
+    if (bindCode) {
+      navigator.clipboard.writeText(`/bind ${bindCode}`)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
 
   // 从图片提取颜色
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -252,6 +322,66 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
+      {/* Telegram 绑定卡片 */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Telegram sx={{ mr: 1, color: '#0088cc' }} />
+            <Typography variant="h6">Telegram 绑定</Typography>
+          </Box>
+          
+          {telegramLoading ? (
+            <Box display="flex" alignItems="center" gap={1}>
+              <CircularProgress size={20} />
+              <Typography variant="body2" color="text.secondary">加载中...</Typography>
+            </Box>
+          ) : !telegramStatus?.bot_enabled ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Telegram Bot 未启用，请联系管理员配置
+            </Alert>
+          ) : telegramStatus?.is_bound ? (
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <CheckCircle color="success" />
+                <Typography variant="body1">已绑定</Typography>
+                <Chip 
+                  label={`ID: ${telegramStatus.telegram_id}`} 
+                  size="small" 
+                  variant="outlined"
+                />
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                您可以在 Telegram 中使用 Bot 搜索书籍、下载文件和查看阅读进度。
+              </Typography>
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                startIcon={unbindLoading ? <CircularProgress size={16} /> : <LinkOff />}
+                onClick={handleUnbindTelegram}
+                disabled={unbindLoading}
+              >
+                {unbindLoading ? '解绑中...' : '解除绑定'}
+              </Button>
+            </Box>
+          ) : (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                绑定 Telegram 后，您可以通过 Bot 搜索书籍、下载文件和查看阅读进度。
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={bindCodeLoading ? <CircularProgress size={16} color="inherit" /> : <Link />}
+                onClick={handleGenerateBindCode}
+                disabled={bindCodeLoading}
+              >
+                {bindCodeLoading ? '生成中...' : '获取绑定码'}
+              </Button>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+
       {/* 账户设置卡片 */}
       <Card>
         <List>
@@ -286,6 +416,42 @@ export default function ProfilePage() {
           </ListItem>
         </List>
       </Card>
+
+      {/* 绑定码对话框 */}
+      <Dialog open={bindDialogOpen} onClose={() => setBindDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Telegram sx={{ color: '#0088cc' }} />
+          Telegram 绑定码
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            请在 Telegram 中向 Bot 发送以下命令完成绑定：
+          </Typography>
+          <Box 
+            sx={{ 
+              p: 2, 
+              bgcolor: 'action.hover', 
+              borderRadius: 1, 
+              fontFamily: 'monospace',
+              fontSize: '1.2rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}
+          >
+            <code>/bind {bindCode}</code>
+            <IconButton onClick={handleCopyBindCode} size="small">
+              {copied ? <CheckCircle color="success" /> : <ContentCopy />}
+            </IconButton>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            绑定码有效期 5 分钟，过期后需要重新获取。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBindDialogOpen(false)}>关闭</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar 提示 */}
       <Snackbar
