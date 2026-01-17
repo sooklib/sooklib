@@ -116,6 +116,7 @@ export default function ReaderPage() {
   const [progress, setProgress] = useState(0)
   const [savedChapterIndex, setSavedChapterIndex] = useState<number | null>(null)
   const [savedChapterOffset, setSavedChapterOffset] = useState<number>(0)
+  const pendingScrollOffsetRef = useRef<number>(0)  // 待恢复的滚动偏移
 
   // 阅读计时器
   useEffect(() => {
@@ -353,6 +354,8 @@ export default function ReaderPage() {
         await loadEpub()
       } else if (format === 'txt' || format === '.txt') {
         setIsEpub(false)
+        // 保存待恢复的偏移
+        pendingScrollOffsetRef.current = initialChapterOffset
         // 先加载完整目录
         await loadToc()
         // 然后加载初始章节
@@ -433,12 +436,24 @@ export default function ReaderPage() {
     }
   }
 
-  // 滚动到指定章节
-  const scrollToChapter = (chapterIndex: number) => {
+  // 滚动到指定章节（支持恢复偏移）
+  const scrollToChapter = (chapterIndex: number, scrollOffset?: number) => {
     const element = chapterRefs.current.get(chapterIndex)
     if (element && contentRef.current) {
       element.scrollIntoView({ behavior: 'auto', block: 'start' })
       setCurrentChapter(chapterIndex)
+      
+      // 如果有待恢复的偏移量，在章节定位后应用
+      const offsetToApply = scrollOffset ?? pendingScrollOffsetRef.current
+      if (offsetToApply > 0) {
+        setTimeout(() => {
+          if (contentRef.current) {
+            contentRef.current.scrollTop += offsetToApply
+          }
+          // 清空待恢复的偏移
+          pendingScrollOffsetRef.current = 0
+        }, 50)
+      }
     }
   }
 
@@ -544,9 +559,21 @@ export default function ReaderPage() {
 
   const saveProgress = async () => {
     try {
+      // 计算当前章节内的滚动偏移
+      let scrollOffset = 0
+      if (contentRef.current) {
+        const chapterEl = chapterRefs.current.get(currentChapter)
+        if (chapterEl) {
+          const containerRect = contentRef.current.getBoundingClientRect()
+          const chapterRect = chapterEl.getBoundingClientRect()
+          // 容器顶部减去章节顶部 = 章节已经滚过的距离
+          scrollOffset = Math.max(0, containerRect.top - chapterRect.top)
+        }
+      }
+      
       await api.post(`/api/progress/${id}`, {
         progress: progress,
-        position: `${currentChapter}:0`,  // 章节号:章节内偏移
+        position: `${currentChapter}:${Math.round(scrollOffset)}`,  // 章节号:章节内滚动偏移
         finished: progress >= 0.98,
       })
     } catch (err) {
