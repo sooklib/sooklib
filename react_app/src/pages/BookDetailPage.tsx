@@ -133,6 +133,9 @@ export default function BookDetailPage() {
   const [ungrouping, setUngrouping] = useState(false)
   const [imageError, setImageError] = useState(false)
 
+  // 设置页面标题 - 必须在条件return之前调用
+  useDocumentTitle(book?.title || '书籍详情')
+
   useEffect(() => {
     if (id) {
       loadBook()
@@ -363,9 +366,6 @@ export default function BookDetailPage() {
 
   const hasProgress = readingProgress && readingProgress.progress > 0
   const progressPercent = readingProgress ? Math.round(readingProgress.progress * 100) : 0
-
-  // 设置页面标题
-  useDocumentTitle(book?.title || '书籍详情')
 
   return (
     <Box sx={{ p: 3 }}>
