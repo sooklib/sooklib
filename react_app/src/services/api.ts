@@ -1,6 +1,5 @@
 import axios from 'axios'
-import { useAuthStore } from '../stores/authStore'
-import { Author, LibrarySummary } from '../types'
+import { Author, LibrarySummary, Annotation, AnnotationCreate, AnnotationUpdate, AnnotationExport, AnnotationStats } from '../types'
 
 const api = axios.create({
   baseURL: '',
@@ -12,9 +11,18 @@ const api = axios.create({
 // 请求拦截器：添加 token
 api.interceptors.request.use(
   (config) => {
-    const token = useAuthStore.getState().token
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+    // 直接从 localStorage 获取 token，避免循环依赖
+    try {
+      const storage = localStorage.getItem('auth-storage')
+      if (storage) {
+        const parsed = JSON.parse(storage)
+        const token = parsed.state?.token
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`
+        }
+      }
+    } catch (e) {
+      console.error('Error reading token from localStorage', e)
     }
     return config
   },
@@ -34,7 +42,8 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      useAuthStore.getState().logout()
+      // 清除本地存储并跳转登录，避免循环依赖导入 store
+      localStorage.removeItem('auth-storage')
       window.location.href = '/login'
     }
     return Promise.reject(error)
@@ -58,6 +67,65 @@ export interface SearchSuggestion {
   text: string
   type: 'book' | 'author'
   id: number
+}
+
+export const annotationsApi = {
+  // 创建批注
+  create: async (data: AnnotationCreate): Promise<Annotation> => {
+    const response = await api.post('/api/annotations', data)
+    return response.data
+  },
+
+  // 获取书籍所有批注
+  getBookAnnotations: async (bookId: number, chapterIndex?: number, annotationType?: string): Promise<Annotation[]> => {
+    const params: any = {}
+    if (chapterIndex !== undefined) params.chapter_index = chapterIndex
+    if (annotationType) params.annotation_type = annotationType
+    
+    const response = await api.get(`/api/annotations/book/${bookId}`, { params })
+    return response.data
+  },
+
+  // 获取特定章节批注
+  getChapterAnnotations: async (bookId: number, chapterIndex: number): Promise<Annotation[]> => {
+    const response = await api.get(`/api/annotations/book/${bookId}/chapter/${chapterIndex}`)
+    return response.data
+  },
+
+  // 获取单个批注
+  get: async (id: number): Promise<Annotation> => {
+    const response = await api.get(`/api/annotations/${id}`)
+    return response.data
+  },
+
+  // 更新批注
+  update: async (id: number, data: AnnotationUpdate): Promise<Annotation> => {
+    const response = await api.put(`/api/annotations/${id}`, data)
+    return response.data
+  },
+
+  // 删除批注
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/api/annotations/${id}`)
+  },
+
+  // 导出批注
+  export: async (bookId: number): Promise<AnnotationExport> => {
+    const response = await api.get(`/api/annotations/book/${bookId}/export`)
+    return response.data
+  },
+  
+  // 获取统计
+  getStats: async (): Promise<AnnotationStats> => {
+    const response = await api.get('/api/annotations/my/stats')
+    return response.data
+  },
+
+  // 获取最近批注
+  getRecent: async (limit: number = 20): Promise<Annotation[]> => {
+    const response = await api.get('/api/annotations/my/recent', { params: { limit } })
+    return response.data
+  }
 }
 
 export const readingStatsApi = {

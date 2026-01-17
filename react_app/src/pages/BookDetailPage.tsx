@@ -56,7 +56,7 @@ interface BookDetail {
 
 interface ReadingProgress {
   progress: number
-  position: number | null
+  position: string | null
   chapter: string | null
   last_read_at: string | null
   finished: boolean

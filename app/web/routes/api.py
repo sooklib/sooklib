@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.scanner import Scanner
+from app.core.websocket import manager
 from app.database import get_db
 from app.models import Author, Book, Library, ReadingProgress, ReadingSession, User
 from app.web.routes.auth import get_current_admin, get_current_user
@@ -865,6 +866,16 @@ async def update_progress(
         db.add(progress)
     
     await db.commit()
+
+    # 广播进度更新
+    await manager.broadcast_to_user(current_user.id, {
+        "type": "progress_update",
+        "book_id": book_id,
+        "progress": progress_data.progress,
+        "position": progress_data.position,
+        "timestamp": now.isoformat()
+    })
+
     return {"status": "success"}
 
 
@@ -1219,6 +1230,16 @@ async def heartbeat_reading_session(
             db.add(reading_progress)
             
     await db.commit()
+
+    # 广播进度更新
+    if data.progress is not None or data.position is not None:
+        await manager.broadcast_to_user(current_user.id, {
+            "type": "progress_update",
+            "book_id": session.book_id,
+            "progress": reading_progress.progress,
+            "position": reading_progress.position,
+            "timestamp": now.isoformat()
+        })
     
     return {"status": "updated"}
 
@@ -1278,6 +1299,16 @@ async def end_reading_session(
             db.add(reading_progress)
     
     await db.commit()
+
+    # 广播进度更新
+    if data.progress is not None or data.position is not None:
+        await manager.broadcast_to_user(current_user.id, {
+            "type": "progress_update",
+            "book_id": session.book_id,
+            "progress": reading_progress.progress,
+            "position": reading_progress.position,
+            "timestamp": now.isoformat()
+        })
     
     return {"status": "ended"}
 

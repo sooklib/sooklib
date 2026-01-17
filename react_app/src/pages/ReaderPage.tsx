@@ -16,6 +16,7 @@ import {
 import ePub, { Book, Rendition } from 'epubjs'
 import api, { readingStatsApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+import { wsService } from '../services/ws'
 import PDFReader from '../components/reader/PDFReader'
 import ComicReader from '../components/reader/ComicReader'
 import useSwipe from '../hooks/useSwipe'
@@ -326,6 +327,64 @@ export default function ReaderPage() {
       endSession()
     }
   }, [id, sendHeartbeat, endSession])
+
+  // 监听 WebSocket 进度更新
+  useEffect(() => {
+    const handleProgressUpdate = (data: any) => {
+      if (!id || data.book_id !== parseInt(id) || data.type !== 'progress_update') {
+        return
+      }
+
+      // 如果差异很小，忽略（可能是自己触发的更新循环）
+      // progressRef 是最新的
+      if (Math.abs(data.progress - progressRef.current) < 0.005) {
+        return
+      }
+      
+      console.log('收到远程进度更新:', data)
+      
+      // 解析位置
+      if (data.position) {
+        const parts = data.position.split(':')
+        if (parts.length >= 1) {
+          const targetChapter = parseInt(parts[0]) || 0
+          const targetOffset = parseInt(parts[1]) || 0
+          
+          // 如果是 TXT
+          if (format === 'txt') {
+             // 只有当章节不同，或者同一章节但位置差异显著时才跳转
+             // 这里无法轻易获取当前滚动位置进行比较，所以主要依赖章节变化
+             // 或者如果用户长时间未操作（这里没有实现检测），则强制同步
+             
+             // 简单的策略：直接同步
+             pendingScrollOffsetRef.current = targetOffset
+             // 触发跳转逻辑（复用 pendingJump 逻辑或直接调用）
+             // 由于 loadChapterContent 和 scrollToChapter 依赖闭包，
+             // 这里最安全的方式是设置 pendingJump，让现有的 Effect 处理
+             
+             // 如果目标章节在已加载范围内
+             if (loadedChapters.some(ch => ch.index === targetChapter)) {
+                scrollToChapter(targetChapter, targetOffset)
+             } else {
+                loadChapterContent(targetChapter)
+             }
+          } else if (format === 'pdf' || format === 'comic') {
+              if (targetChapter !== currentChapter) {
+                  setCurrentChapter(targetChapter)
+              }
+          }
+          
+          setProgress(data.progress)
+        }
+      }
+    }
+
+    wsService.on('progress_update', handleProgressUpdate)
+    
+    return () => {
+      wsService.off('progress_update', handleProgressUpdate)
+    }
+  }, [id, format, loadedChapters, currentChapter]) // 添加必要的依赖
 
   // 阅读计时器
   useEffect(() => {
