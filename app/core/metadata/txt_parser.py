@@ -63,24 +63,21 @@ class TxtParser:
             
             self.custom_patterns = []
             for pattern in patterns:
-                # 解析 regex_pattern，假设格式为 "regex|author_group|title_group"
-                # 例如: "^(.+?)[-_](.+?)\.txt$|1|2"
                 try:
-                    parts = pattern.regex_pattern.split('|')
-                    if len(parts) >= 3:
-                        regex = parts[0]
-                        author_group = int(parts[1])
-                        title_group = int(parts[2])
-                        self.custom_patterns.append((
-                            regex,
-                            author_group,
-                            title_group,
-                            pattern.name,
-                            pattern.id
-                        ))
-                        log.debug(f"加载自定义规则: {pattern.name} (优先级: {pattern.priority})")
-                except (ValueError, IndexError) as e:
-                    log.error(f"解析规则失败: {pattern.name}, 错误: {e}")
+                    # 直接使用模型字段
+                    self.custom_patterns.append({
+                        "regex": pattern.regex_pattern,
+                        "title_group": pattern.title_group,
+                        "author_group": pattern.author_group,
+                        "extra_group": pattern.extra_group,
+                        # 如果未来添加了tag_group字段，这里可以读取
+                        "tag_group": getattr(pattern, "tag_group", 0),
+                        "name": pattern.name,
+                        "id": pattern.id
+                    })
+                    log.debug(f"加载自定义规则: {pattern.name} (优先级: {pattern.priority})")
+                except Exception as e:
+                    log.error(f"加载规则失败: {pattern.name}, 错误: {e}")
             
             log.info(f"成功加载 {len(self.custom_patterns)} 个自定义文件名规则")
             
@@ -100,35 +97,66 @@ class TxtParser:
         filename = file_path.name
         
         # 先尝试自定义规则（优先级更高）
-        for pattern_data in self.custom_patterns:
-            regex = pattern_data[0]
-            author_group = pattern_data[1]
-            title_group = pattern_data[2]
-            pattern_name = pattern_data[3]
-            pattern_id = pattern_data[4] if len(pattern_data) > 4 else None
+        for pattern in self.custom_patterns:
+            regex = pattern["regex"]
             
             try:
                 if match := re.match(regex, filename):
-                    author = self._normalize(match.group(author_group))
-                    title = self._normalize(match.group(title_group))
+                    title = None
+                    author = None
+                    extra = None
+                    tags = []
                     
-                    # 记录统计
-                    if pattern_id:
-                        self._record_match(pattern_id, success=True)
+                    # 提取标题
+                    if pattern["title_group"] > 0:
+                        try:
+                            title = self._normalize(match.group(pattern["title_group"]))
+                        except IndexError:
+                            pass
+                            
+                    # 提取作者
+                    if pattern["author_group"] > 0:
+                        try:
+                            author = self._normalize(match.group(pattern["author_group"]))
+                        except IndexError:
+                            pass
+                            
+                    # 提取额外信息
+                    if pattern["extra_group"] > 0:
+                        try:
+                            extra = self._normalize(match.group(pattern["extra_group"]))
+                        except IndexError:
+                            pass
+                            
+                    # 提取标签（如果有）
+                    if pattern["tag_group"] > 0:
+                        try:
+                            tag_str = self._normalize(match.group(pattern["tag_group"]))
+                            # 假设标签用空格或逗号分隔，或者就是单个标签
+                            tags.append(tag_str)
+                        except IndexError:
+                            pass
                     
-                    log.debug(f"成功解析文件名: {filename} -> 作者: {author}, 书名: {title} (规则: {pattern_name})")
-                    
-                    return {
-                        "title": title,
-                        "author": author,
-                        "description": None,
-                        "publisher": None,
-                        "cover": None,
-                    }
+                    if title:
+                        # 记录统计
+                        if pattern["id"]:
+                            self._record_match(pattern["id"], success=True)
+                        
+                        log.debug(f"成功解析文件名: {filename} -> 作者: {author}, 书名: {title}, 额外: {extra} (规则: {pattern['name']})")
+                        
+                        return {
+                            "title": title,
+                            "author": author,
+                            "description": None,
+                            "publisher": None,
+                            "cover": None,
+                            "extra": extra,  # 虽然models.Book没有extra字段，但可以在上层处理
+                            "auto_tags": tags if tags else None
+                        }
             except Exception as e:
-                log.error(f"应用规则 {pattern_name} 失败: {e}")
-                if pattern_id:
-                    self._record_match(pattern_id, success=False)
+                log.error(f"应用规则 {pattern['name']} 失败: {e}")
+                if pattern["id"]:
+                    self._record_match(pattern["id"], success=False)
         
         # 再尝试默认规则
         for pattern, author_group, title_group, pattern_name in self.DEFAULT_PATTERNS:

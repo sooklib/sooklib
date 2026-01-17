@@ -610,6 +610,14 @@ export default function BookDetailPage() {
                 )}
                 <Grid item xs={6} sm={4}>
                   <Typography variant="caption" color="text.secondary">
+                    原文件名
+                  </Typography>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
+                    {book.versions?.[0]?.file_name || '未知'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6} sm={4}>
+                  <Typography variant="caption" color="text.secondary">
                     文件格式
                   </Typography>
                   <Typography variant="body2">{book.file_format.toUpperCase()}</Typography>

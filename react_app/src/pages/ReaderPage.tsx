@@ -96,13 +96,13 @@ interface AnnotationInfo {
   updated_at: string
 }
 
-// 高亮颜色配置
+// 高亮颜色配置 (增加透明度以适应深色模式)
 const highlightColors = {
-  yellow: { bg: 'rgba(255, 235, 59, 0.4)', name: '黄色' },
-  green: { bg: 'rgba(76, 175, 80, 0.4)', name: '绿色' },
-  blue: { bg: 'rgba(33, 150, 243, 0.4)', name: '蓝色' },
-  red: { bg: 'rgba(244, 67, 54, 0.4)', name: '红色' },
-  purple: { bg: 'rgba(156, 39, 176, 0.4)', name: '紫色' },
+  yellow: { bg: 'rgba(255, 235, 59, 0.5)', name: '黄色' },
+  green: { bg: 'rgba(76, 175, 80, 0.5)', name: '绿色' },
+  blue: { bg: 'rgba(33, 150, 243, 0.5)', name: '蓝色' },
+  red: { bg: 'rgba(244, 67, 54, 0.5)', name: '红色' },
+  purple: { bg: 'rgba(156, 39, 176, 0.5)', name: '紫色' },
 }
 
 // 主题预设 (静读天下风格 - 8种主题)
@@ -1046,18 +1046,43 @@ export default function ReaderPage() {
         >
           {chapter.content.substring(annotation.start_offset, annotation.end_offset)}
           {annotation.note && (
-            <Box
-              component="span"
-              sx={{
-                position: 'absolute',
-                top: -2,
-                right: -6,
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                bgcolor: 'primary.main',
-              }}
-            />
+            <>
+              <Box
+                component="span"
+                sx={{
+                  position: 'absolute',
+                  top: -2,
+                  right: -6,
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  bgcolor: 'error.main',
+                  zIndex: 1,
+                }}
+              />
+              <Box
+                className="annotation-note-tooltip"
+                sx={{
+                  display: 'none',
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  bgcolor: 'rgba(0, 0, 0, 0.9)',
+                  color: 'white',
+                  p: 1,
+                  borderRadius: 1,
+                  fontSize: '12px',
+                  whiteSpace: 'nowrap',
+                  zIndex: 10,
+                  mb: 1,
+                  pointerEvents: 'none',
+                  boxShadow: 3,
+                }}
+              >
+                {annotation.note}
+              </Box>
+            </>
           )}
         </Box>
       )
@@ -1115,8 +1140,11 @@ export default function ReaderPage() {
       
       // 重新加载书签列表
       await loadBookmarks()
+      // 简单的成功提示，实际项目中可以使用 Snackbar
+      // alert('书签添加成功') 
     } catch (err) {
       console.error('添加书签失败:', err)
+      alert('添加书签失败')
     }
   }
 
@@ -1514,6 +1542,12 @@ export default function ReaderPage() {
             目录 ({totalChapters}章)
           </Typography>
           <List sx={{ maxHeight: 'calc(100vh - 100px)', overflow: 'auto' }}>
+            {totalChapters === 0 && !isEpub && (
+              <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
+                <Typography variant="body2">未识别到目录</Typography>
+                <Typography variant="caption">可能是短篇小说或格式不支持</Typography>
+              </Box>
+            )}
             {isEpub ? (
               epubToc.map((item, index) => (
                 <ListItem key={index} disablePadding>

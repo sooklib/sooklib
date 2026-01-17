@@ -61,6 +61,7 @@ interface FilenamePattern {
   title_group: number
   author_group: number
   extra_group: number
+  tag_group: number
   priority: number
   is_active: boolean
   library_id: number | null
@@ -99,6 +100,7 @@ function PatternsTabContent() {
     title_group: 1,
     author_group: 2,
     extra_group: 0,
+    tag_group: 0,
     priority: 0,
     library_id: null as number | null,
     example_filename: ''
@@ -129,7 +131,8 @@ function PatternsTabContent() {
       setPatterns(response.data || [])
     } catch (err: any) {
       console.error('加载规则失败:', err)
-      setError(err.response?.data?.detail || '加载规则失败')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail) || '加载规则失败')
       setPatterns([])
     } finally {
       setLoading(false)
@@ -162,6 +165,7 @@ function PatternsTabContent() {
       title_group: 1,
       author_group: 2,
       extra_group: 0,
+      tag_group: 0,
       priority: 0,
       library_id: null,
       example_filename: ''
@@ -178,6 +182,7 @@ function PatternsTabContent() {
       title_group: pattern.title_group,
       author_group: pattern.author_group,
       extra_group: pattern.extra_group,
+      tag_group: pattern.tag_group || 0,
       priority: pattern.priority,
       library_id: pattern.library_id,
       example_filename: pattern.example_filename || ''
@@ -197,7 +202,8 @@ function PatternsTabContent() {
       setDialogOpen(false)
       loadPatterns()
     } catch (err: any) {
-      setError(err.response?.data?.detail || '保存失败')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail) || '保存失败')
     }
   }
 
@@ -209,7 +215,8 @@ function PatternsTabContent() {
       setSuccess('规则删除成功')
       loadPatterns()
     } catch (err: any) {
-      setError(err.response?.data?.detail || '删除失败')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail) || '删除失败')
     }
   }
 
@@ -220,7 +227,8 @@ function PatternsTabContent() {
       })
       loadPatterns()
     } catch (err: any) {
-      setError(err.response?.data?.detail || '更新失败')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail) || '更新失败')
     }
   }
 
@@ -233,12 +241,14 @@ function PatternsTabContent() {
           filename: testFilename,
           title_group: formData.title_group,
           author_group: formData.author_group,
-          extra_group: formData.extra_group
+          extra_group: formData.extra_group,
+          tag_group: formData.tag_group
         }
       })
       setTestResult(response.data)
     } catch (err: any) {
-      setTestResult({ success: false, error: err.response?.data?.detail || '测试失败' })
+      const detail = err.response?.data?.detail
+      setTestResult({ success: false, error: typeof detail === 'string' ? detail : JSON.stringify(detail) || '测试失败' })
     } finally {
       setTesting(false)
     }
@@ -257,7 +267,8 @@ function PatternsTabContent() {
       })
       setAnalysisResult(response.data)
     } catch (err: any) {
-      setError(err.response?.data?.detail || '分析失败')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail) || '分析失败')
     } finally {
       setAnalyzing(false)
     }
@@ -273,6 +284,7 @@ function PatternsTabContent() {
         title_group: pattern.title_group || 1,
         author_group: pattern.author_group || 2,
         extra_group: pattern.extra_group || 0,
+        tag_group: pattern.tag_group || 0,
         priority: 0,
         library_id: selectedLibraryId,
         description: `AI自动生成，置信度: ${Math.round((pattern.confidence || 0) * 100)}%`
@@ -287,7 +299,8 @@ function PatternsTabContent() {
       }))
       loadPatterns()
     } catch (err: any) {
-      setError(err.response?.data?.detail || '添加规则失败')
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail) || '添加规则失败')
     } finally {
       setAddingPattern(null)
     }
@@ -312,6 +325,7 @@ function PatternsTabContent() {
           title_group: pattern.title_group || 1,
           author_group: pattern.author_group || 2,
           extra_group: pattern.extra_group || 0,
+          tag_group: pattern.tag_group || 0,
           priority: 0,
           library_id: selectedLibraryId,
           description: `AI自动生成，置信度: ${Math.round((pattern.confidence || 0) * 100)}%`
@@ -459,6 +473,7 @@ function PatternsTabContent() {
                     <Typography variant="caption">
                       书名: {pattern.title_group} | 作者: {pattern.author_group}
                       {pattern.extra_group > 0 && ` | 额外: ${pattern.extra_group}`}
+                      {pattern.tag_group > 0 && ` | 标签: ${pattern.tag_group}`}
                     </Typography>
                   </TableCell>
                   <TableCell>{pattern.priority}</TableCell>
@@ -588,7 +603,7 @@ function PatternsTabContent() {
                 value={formData.author_group}
                 onChange={(e) => setFormData({ ...formData, author_group: parseInt(e.target.value) || 0 })}
                 inputProps={{ min: 0 }}
-                helperText="0表示无作者"
+                helperText="0表示无"
               />
               <TextField
                 sx={{ flex: '1 1 100px' }}
@@ -596,6 +611,15 @@ function PatternsTabContent() {
                 label="额外信息捕获组"
                 value={formData.extra_group}
                 onChange={(e) => setFormData({ ...formData, extra_group: parseInt(e.target.value) || 0 })}
+                inputProps={{ min: 0 }}
+                helperText="0表示无"
+              />
+              <TextField
+                sx={{ flex: '1 1 100px' }}
+                type="number"
+                label="标签捕获组"
+                value={formData.tag_group}
+                onChange={(e) => setFormData({ ...formData, tag_group: parseInt(e.target.value) || 0 })}
                 inputProps={{ min: 0 }}
                 helperText="0表示无"
               />
@@ -670,6 +694,13 @@ function PatternsTabContent() {
                 value={formData.extra_group}
                 onChange={(e) => setFormData({ ...formData, extra_group: parseInt(e.target.value) || 0 })}
               />
+              <TextField
+                sx={{ flex: '1 1 100px' }}
+                type="number"
+                label="标签组"
+                value={formData.tag_group}
+                onChange={(e) => setFormData({ ...formData, tag_group: parseInt(e.target.value) || 0 })}
+              />
             </Box>
             <Button
               variant="contained"
@@ -689,9 +720,12 @@ function PatternsTabContent() {
                     {testResult.parsed?.extra && (
                       <Typography variant="body2">额外: {testResult.parsed.extra}</Typography>
                     )}
+                    {testResult.parsed?.tags && (
+                      <Typography variant="body2">标签: {testResult.parsed.tags}</Typography>
+                    )}
                   </Box>
                 ) : (
-                  testResult.error || '匹配失败'
+                  typeof testResult.error === 'string' ? testResult.error : JSON.stringify(testResult.error) || '匹配失败'
                 )}
               </Alert>
             )}
@@ -791,6 +825,7 @@ function PatternsTabContent() {
                       <Typography variant="caption" color="text.secondary">
                         置信度: {Math.round((p.confidence || 0) * 100)}% | 
                         书名组: {p.title_group || 1} | 作者组: {p.author_group || 2}
+                        {p.tag_group > 0 && ` | 标签组: ${p.tag_group}`}
                       </Typography>
                     </Box>
                     {!p.added && (

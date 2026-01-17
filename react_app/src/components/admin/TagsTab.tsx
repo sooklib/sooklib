@@ -31,6 +31,7 @@ import {
   LocalOffer as TagIcon,
   Info as InfoIcon,
   Download as ImportIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import api from '../../services/api';
 
@@ -154,6 +155,9 @@ const TagsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [autoTagDialogOpen, setAutoTagDialogOpen] = useState(false);
   const [initLoading, setInitLoading] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     loadKeywords();
@@ -219,10 +223,31 @@ const TagsTab: React.FC = () => {
       const response = await api.post('/api/tags/init-defaults');
       const { created_count, skipped_count, total_predefined } = response.data;
       alert(`导入完成！\n新创建: ${created_count} 个标签\n已存在: ${skipped_count} 个\n预定义总数: ${total_predefined} 个`);
+      loadKeywords(); // 刷新列表
     } catch (err: any) {
       alert('导入失败: ' + (err.response?.data?.detail || err.message));
     } finally {
       setInitLoading(false);
+    }
+  };
+
+  const handleCreateTag = async () => {
+    if (!newTagName.trim()) return;
+    
+    setCreating(true);
+    try {
+      await api.post('/api/admin/tags', {
+        name: newTagName.trim(),
+        type: 'custom'
+      });
+      setCreateDialogOpen(false);
+      setNewTagName('');
+      loadKeywords(); // 刷新列表
+      alert('标签创建成功');
+    } catch (err: any) {
+      alert('创建失败: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -265,6 +290,14 @@ const TagsTab: React.FC = () => {
             onClick={() => setAutoTagDialogOpen(true)}
           >
             自动打标签
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={<AddIcon />}
+            onClick={() => setCreateDialogOpen(true)}
+          >
+            新建标签
           </Button>
         </Box>
       </Box>
@@ -380,6 +413,32 @@ const TagsTab: React.FC = () => {
         onClose={() => setAutoTagDialogOpen(false)}
         onSuccess={loadKeywords}
       />
+
+      {/* 新建标签对话框 */}
+      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>新建自定义标签</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="标签名称"
+            fullWidth
+            value={newTagName}
+            onChange={(e) => setNewTagName(e.target.value)}
+            disabled={creating}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)}>取消</Button>
+          <Button 
+            onClick={handleCreateTag} 
+            variant="contained" 
+            disabled={creating || !newTagName.trim()}
+          >
+            {creating ? '创建中...' : '创建'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

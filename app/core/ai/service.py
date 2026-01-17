@@ -513,6 +513,7 @@ class AIService:
             "title_group": 1,
             "author_group": 2,
             "extra_group": 0,
+            "tag_group": 0,
             "match_count": 10
         }}
     ],

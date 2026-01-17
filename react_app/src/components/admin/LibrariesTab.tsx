@@ -1644,7 +1644,7 @@ export default function LibrariesTab() {
                           <TableCell>当前作者</TableCell>
                           <TableCell>→</TableCell>
                           <TableCell>提取作者</TableCell>
-                          {extractType === 'ai' && <TableCell>标签</TableCell>}
+                          <TableCell>标签/额外信息</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
