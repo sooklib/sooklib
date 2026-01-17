@@ -114,6 +114,7 @@ function PatternsTabContent() {
   const [selectedLibraryId, setSelectedLibraryId] = useState<number | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [addingPattern, setAddingPattern] = useState<number | null>(null)
 
   useEffect(() => {
     loadPatterns()
@@ -260,6 +261,73 @@ function PatternsTabContent() {
     } finally {
       setAnalyzing(false)
     }
+  }
+
+  // 添加AI生成的规则到列表
+  const handleAddAIPattern = async (pattern: any, index: number) => {
+    try {
+      setAddingPattern(index)
+      await api.post('/api/admin/ai/patterns', {
+        name: pattern.name || `AI规则${index + 1}`,
+        regex_pattern: pattern.regex,
+        title_group: pattern.title_group || 1,
+        author_group: pattern.author_group || 2,
+        extra_group: pattern.extra_group || 0,
+        priority: 0,
+        library_id: selectedLibraryId,
+        description: `AI自动生成，置信度: ${Math.round((pattern.confidence || 0) * 100)}%`
+      })
+      setSuccess(`规则 "${pattern.name}" 已添加`)
+      // 标记该规则已添加
+      setAnalysisResult((prev: any) => ({
+        ...prev,
+        patterns: prev.patterns.map((p: any, i: number) => 
+          i === index ? { ...p, added: true } : p
+        )
+      }))
+      loadPatterns()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || '添加规则失败')
+    } finally {
+      setAddingPattern(null)
+    }
+  }
+
+  // 批量添加所有AI规则
+  const handleAddAllAIPatterns = async () => {
+    if (!analysisResult?.patterns?.length) return
+    
+    const patternsToAdd = analysisResult.patterns.filter((p: any) => !p.added && p.regex)
+    if (patternsToAdd.length === 0) {
+      setSuccess('所有规则已添加')
+      return
+    }
+    
+    let addedCount = 0
+    for (const pattern of patternsToAdd) {
+      try {
+        await api.post('/api/admin/ai/patterns', {
+          name: pattern.name || `AI规则`,
+          regex_pattern: pattern.regex,
+          title_group: pattern.title_group || 1,
+          author_group: pattern.author_group || 2,
+          extra_group: pattern.extra_group || 0,
+          priority: 0,
+          library_id: selectedLibraryId,
+          description: `AI自动生成，置信度: ${Math.round((pattern.confidence || 0) * 100)}%`
+        })
+        addedCount++
+      } catch (err) {
+        console.error('添加规则失败:', err)
+      }
+    }
+    
+    setSuccess(`已添加 ${addedCount} 个规则`)
+    setAnalysisResult((prev: any) => ({
+      ...prev,
+      patterns: prev.patterns.map((p: any) => ({ ...p, added: true }))
+    }))
+    loadPatterns()
   }
 
   if (loading) {
@@ -687,16 +755,56 @@ function PatternsTabContent() {
                 </Typography>
               )}
 
+              {analysisResult.patterns?.length > 0 && (
+                <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<Add />}
+                    onClick={handleAddAllAIPatterns}
+                    disabled={analysisResult.patterns.every((p: any) => p.added)}
+                  >
+                    添加全部规则
+                  </Button>
+                </Box>
+              )}
+
               {analysisResult.patterns?.map((p: any, i: number) => (
-                <Card key={i} variant="outlined" sx={{ mb: 1 }}>
-                  <CardContent sx={{ py: 1 }}>
-                    <Typography variant="subtitle2">{p.name}</Typography>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                      {p.regex}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      置信度: {Math.round((p.confidence || 0) * 100)}%
-                    </Typography>
+                <Card 
+                  key={i} 
+                  variant="outlined" 
+                  sx={{ 
+                    mb: 1,
+                    bgcolor: p.added ? 'action.selected' : 'inherit',
+                    opacity: p.added ? 0.7 : 1
+                  }}
+                >
+                  <CardContent sx={{ py: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle2">
+                        {p.name}
+                        {p.added && <Chip label="已添加" size="small" color="success" sx={{ ml: 1 }} />}
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', wordBreak: 'break-all' }}>
+                        {p.regex}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        置信度: {Math.round((p.confidence || 0) * 100)}% | 
+                        书名组: {p.title_group || 1} | 作者组: {p.author_group || 2}
+                      </Typography>
+                    </Box>
+                    {!p.added && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={addingPattern === i ? <CircularProgress size={16} /> : <Add />}
+                        onClick={() => handleAddAIPattern(p, i)}
+                        disabled={addingPattern !== null}
+                        sx={{ ml: 1, flexShrink: 0 }}
+                      >
+                        添加
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ))}
