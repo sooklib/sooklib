@@ -119,6 +119,10 @@ async def spa_fallback(request: Request, full_path: str):
     SPA 路由回退
     返回 React 的 index.html
     """
+    # 如果是 API 请求，不要返回 index.html，而是返回 404
+    if full_path.startswith("api/"):
+        return {"detail": "Not Found"}, 404
+
     if REACT_DIR.exists():
         # 先尝试返回静态文件
         file_path = REACT_DIR / full_path

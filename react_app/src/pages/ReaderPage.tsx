@@ -18,6 +18,7 @@ import api, { readingStatsApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import PDFReader from '../components/reader/PDFReader'
 import ComicReader from '../components/reader/ComicReader'
+import useSwipe from '../hooks/useSwipe'
 
 interface TocChapter {
   title: string
@@ -333,6 +334,24 @@ export default function ReaderPage() {
     }, 1000)
     return () => clearInterval(timer)
   }, [readingStartTime])
+
+  // 手势处理
+  const swipeHandlers = useSwipe({
+    onSwipedLeft: () => {
+      if (isEpub) {
+        epubNext()
+      } else {
+        nextChapter()
+      }
+    },
+    onSwipedRight: () => {
+      if (isEpub) {
+        epubPrev()
+      } else {
+        prevChapter()
+      }
+    }
+  })
 
   // 加载书籍信息
   useEffect(() => {
@@ -1493,6 +1512,9 @@ export default function ReaderPage() {
     <Box 
       sx={{ minHeight: '100vh', bgcolor: currentTheme.bg, color: currentTheme.text }}
       onClick={handleContentClick}
+      onTouchStart={swipeHandlers.onTouchStart}
+      onTouchMove={swipeHandlers.onTouchMove}
+      onTouchEnd={swipeHandlers.onTouchEnd}
     >
       {/* 顶部栏 */}
       <AppBar 

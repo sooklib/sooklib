@@ -21,9 +21,17 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
-// 响应拦截器：处理 401
+// 响应拦截器：处理 401 和非 JSON 响应
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // 检查响应是否为 JSON (避免 API 404 返回 index.html 导致前端崩溃)
+    const contentType = response.headers['content-type']
+    if (contentType && contentType.includes('text/html') && response.config.url?.startsWith('/api')) {
+      console.error('API 返回了 HTML 而不是 JSON，可能是路径错误或服务器配置问题', response.config.url)
+      return Promise.reject(new Error('API Response Error: Received HTML instead of JSON'))
+    }
+    return response
+  },
   (error) => {
     if (error.response?.status === 401) {
       useAuthStore.getState().logout()

@@ -56,6 +56,7 @@ export default function ContinueReadingCard({ item, loading = false }: ContinueR
             component="img"
             src={`/api${item.cover_url}`}
             alt={item.title}
+            loading="lazy"
             sx={{
               width: '100%',
               height: '100%',

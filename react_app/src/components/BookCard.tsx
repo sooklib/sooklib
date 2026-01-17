@@ -124,6 +124,7 @@ export default function BookCard({ book, loading = false, onClick }: BookCardPro
             component="img"
             src={`/api${book.cover_url}`}
             alt={book.title}
+            loading="lazy"
             sx={{
               width: '100%',
               height: '100%',
