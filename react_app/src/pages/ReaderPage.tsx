@@ -4,7 +4,7 @@ import {
   Box, Typography, IconButton, Drawer, List, ListItem, ListItemButton,
   ListItemText, Slider, CircularProgress,
   Alert, AppBar, Toolbar, Divider, FormControl, Select, MenuItem,
-  Grid, Chip, TextField, InputAdornment, Paper
+  Grid, Chip, TextField, InputAdornment, Paper, useMediaQuery, useTheme
 } from '@mui/material'
 import {
   ArrowBack, Menu, Settings, TextFields, FormatLineSpacing,
@@ -131,9 +131,15 @@ export default function ReaderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const token = useAuthStore((state) => state.token)
+  const muiTheme = useTheme()
+  const isMobile = useMediaQuery(muiTheme.breakpoints.down('sm'))
   const contentRef = useRef<HTMLDivElement>(null)
   const epubViewerRef = useRef<HTMLDivElement>(null)
   const chapterRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  
+  // 响应式抽屉宽度
+  const drawerWidth = isMobile ? '100vw' : 320
+  const wideDrawerWidth = isMobile ? '100vw' : 360
   
   // 状态
   const [loading, setLoading] = useState(true)
@@ -1825,10 +1831,17 @@ export default function ReaderPage() {
 
       {/* 目录抽屉 - 显示完整目录 */}
       <Drawer anchor="left" open={tocOpen} onClose={() => setTocOpen(false)} onClick={(e) => e.stopPropagation()}>
-        <Box sx={{ width: 300, p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            目录 ({totalChapters}章)
-          </Typography>
+        <Box sx={{ width: drawerWidth, p: 2, height: isMobile ? '100vh' : 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="h6">
+              目录 ({totalChapters}章)
+            </Typography>
+            {isMobile && (
+              <IconButton size="small" onClick={() => setTocOpen(false)}>
+                <Close />
+              </IconButton>
+            )}
+          </Box>
           <List sx={{ maxHeight: 'calc(100vh - 100px)', overflow: 'auto' }}>
             {totalChapters === 0 && !isEpub && (
               <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
@@ -1868,8 +1881,15 @@ export default function ReaderPage() {
 
       {/* 设置抽屉 */}
       <Drawer anchor="right" open={settingsOpen} onClose={() => setSettingsOpen(false)} onClick={(e) => e.stopPropagation()}>
-        <Box sx={{ width: 320, p: 3, maxHeight: '100vh', overflow: 'auto' }}>
-          <Typography variant="h6" sx={{ mb: 3 }}>阅读设置</Typography>
+        <Box sx={{ width: drawerWidth, p: 3, height: isMobile ? '100vh' : 'auto', overflow: 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+            <Typography variant="h6">阅读设置</Typography>
+            {isMobile && (
+              <IconButton size="small" onClick={() => setSettingsOpen(false)}>
+                <Close />
+              </IconButton>
+            )}
+          </Box>
           
           <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <TextFields sx={{ fontSize: 16, mr: 1 }} />
@@ -2019,7 +2039,7 @@ export default function ReaderPage() {
 
       {/* 搜索抽屉 */}
       <Drawer anchor="right" open={searchOpen} onClose={() => setSearchOpen(false)} onClick={(e) => e.stopPropagation()}>
-        <Box sx={{ width: 360, p: 2 }}>
+        <Box sx={{ width: wideDrawerWidth, p: 2, height: isMobile ? '100vh' : 'auto' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Typography variant="h6">
               书内搜索
@@ -2195,7 +2215,7 @@ export default function ReaderPage() {
 
       {/* 批注抽屉 */}
       <Drawer anchor="right" open={annotationsOpen} onClose={() => setAnnotationsOpen(false)} onClick={(e) => e.stopPropagation()}>
-        <Box sx={{ width: 360, p: 2 }}>
+        <Box sx={{ width: wideDrawerWidth, p: 2, height: isMobile ? '100vh' : 'auto' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Typography variant="h6">
               笔记与高亮 ({annotations.length})
@@ -2306,16 +2326,23 @@ export default function ReaderPage() {
 
       {/* 书签抽屉 */}
       <Drawer anchor="right" open={bookmarksOpen} onClose={() => setBookmarksOpen(false)} onClick={(e) => e.stopPropagation()}>
-        <Box sx={{ width: 320, p: 2 }}>
+        <Box sx={{ width: drawerWidth, p: 2, height: isMobile ? '100vh' : 'auto' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Typography variant="h6">
               书签 ({bookmarks.length})
             </Typography>
-            {!isEpub && (
-              <IconButton onClick={addBookmark} color="primary" size="small">
-                <Add />
-              </IconButton>
-            )}
+            <Box>
+              {!isEpub && (
+                <IconButton onClick={addBookmark} color="primary" size="small">
+                  <Add />
+                </IconButton>
+              )}
+              {isMobile && (
+                <IconButton size="small" onClick={() => setBookmarksOpen(false)}>
+                  <Close />
+                </IconButton>
+              )}
+            </Box>
           </Box>
           
           {loadingBookmarks ? (
