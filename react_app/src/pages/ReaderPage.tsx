@@ -13,7 +13,7 @@ import {
   Delete, Add, Search, Close, Edit, FormatColorFill, Download
 } from '@mui/icons-material'
 import ePub, { Book, Rendition } from 'epubjs'
-import api from '../services/api'
+import api, { readingStatsApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 
 interface TocChapter {
@@ -202,6 +202,113 @@ export default function ReaderPage() {
   const [savedChapterIndex, setSavedChapterIndex] = useState<number | null>(null)
   const [savedChapterOffset, setSavedChapterOffset] = useState<number>(0)
   const pendingScrollOffsetRef = useRef<number>(0)  // 待恢复的滚动偏移
+  
+  // 阅读统计相关 Refs
+  const sessionIdRef = useRef<number | null>(null)
+  const heartbeatTimerRef = useRef<number | null>(null)
+  const progressRef = useRef(progress) // 追踪最新进度
+  
+  // 更新 progressRef
+  useEffect(() => {
+    progressRef.current = progress
+  }, [progress])
+
+  // 获取当前阅读位置字符串
+  const getCurrentPosition = useCallback(() => {
+    if (isEpub) return null // EPUB 位置处理稍有不同
+    
+    let scrollOffset = 0
+    if (contentRef.current) {
+      const chapterEl = chapterRefs.current.get(currentChapter)
+      if (chapterEl) {
+        const containerRect = contentRef.current.getBoundingClientRect()
+        const chapterRect = chapterEl.getBoundingClientRect()
+        scrollOffset = Math.max(0, containerRect.top - chapterRect.top)
+      }
+    }
+    return `${currentChapter}:${Math.round(scrollOffset)}`
+  }, [currentChapter, isEpub])
+
+  // 发送心跳
+  const sendHeartbeat = useCallback(async () => {
+    if (!sessionIdRef.current) return
+    
+    try {
+      const duration = Math.floor((Date.now() - readingStartTime) / 1000)
+      const position = getCurrentPosition()
+      
+      await readingStatsApi.sendHeartbeat(
+        sessionIdRef.current,
+        duration,
+        progressRef.current,
+        position || undefined
+      )
+    } catch (err) {
+      console.error('发送心跳失败:', err)
+    }
+  }, [readingStartTime, getCurrentPosition])
+
+  // 结束会话
+  const endSession = useCallback(async () => {
+    if (!sessionIdRef.current) return
+    
+    try {
+      const duration = Math.floor((Date.now() - readingStartTime) / 1000)
+      const position = getCurrentPosition()
+      
+      // 使用 sendBeacon 确保页面关闭时也能发送
+      const data = JSON.stringify({
+        session_id: sessionIdRef.current,
+        duration_seconds: duration,
+        progress: progressRef.current,
+        position: position
+      })
+      
+      const blob = new Blob([data], { type: 'application/json' })
+      navigator.sendBeacon('/api/stats/session/end', blob)
+      
+      sessionIdRef.current = null
+    } catch (err) {
+      console.error('结束会话失败:', err)
+    }
+  }, [readingStartTime, getCurrentPosition])
+
+  // 管理阅读会话生命周期
+  useEffect(() => {
+    if (!id) return
+
+    const startSession = async () => {
+      try {
+        const response = await readingStatsApi.startSession(parseInt(id))
+        sessionIdRef.current = response.session_id
+        
+        // 启动心跳定时器 (每30秒)
+        heartbeatTimerRef.current = window.setInterval(sendHeartbeat, 30000)
+      } catch (err) {
+        console.error('开始阅读会话失败:', err)
+      }
+    }
+
+    startSession()
+
+    // 页面可见性变化处理
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // 页面不可见时，可以选择发送一次心跳或者暂停计时（这里简单发送心跳）
+        sendHeartbeat()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current)
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      endSession()
+    }
+  }, [id, sendHeartbeat, endSession])
 
   // 阅读计时器
   useEffect(() => {
