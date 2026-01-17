@@ -393,13 +393,39 @@ export default function ReaderPage() {
     if (pendingJump !== null && loadedChapters.length > 0 && !loadingChapter) {
       // 确保目标章节在已加载范围内
       if (pendingJump >= loadedRange.start && pendingJump <= loadedRange.end) {
-        // 等待 DOM 渲染完成后再滚动
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            scrollToChapter(pendingJump)
-            setPendingJump(null)
-          })
-        })
+        // 使用 setTimeout 确保 DOM 完全渲染后再滚动
+        const timer = setTimeout(() => {
+          // 再次检查引用是否已建立
+          const targetEl = chapterRefs.current.get(pendingJump)
+          if (targetEl && contentRef.current) {
+            targetEl.scrollIntoView({ behavior: 'auto', block: 'start' })
+            setCurrentChapter(pendingJump)
+            
+            // 如果有待恢复的偏移量
+            const offsetToApply = pendingScrollOffsetRef.current
+            if (offsetToApply > 0) {
+              setTimeout(() => {
+                if (contentRef.current) {
+                  contentRef.current.scrollTop += offsetToApply
+                }
+                pendingScrollOffsetRef.current = 0
+              }, 50)
+            }
+          } else {
+            console.warn('章节元素未找到，延迟重试:', pendingJump)
+            // 如果元素还没准备好，再等待一下
+            setTimeout(() => {
+              const retryEl = chapterRefs.current.get(pendingJump)
+              if (retryEl && contentRef.current) {
+                retryEl.scrollIntoView({ behavior: 'auto', block: 'start' })
+                setCurrentChapter(pendingJump)
+              }
+            }, 100)
+          }
+          setPendingJump(null)
+        }, 50)  // 给 React 足够时间完成渲染
+        
+        return () => clearTimeout(timer)
       }
     }
   }, [pendingJump, loadedChapters, loadingChapter, loadedRange])
@@ -491,6 +517,10 @@ export default function ReaderPage() {
     try {
       setLoadingChapter(true)
       
+      // 记录当前滚动位置（用于向前加载时保持位置）
+      const scrollBefore = contentRef.current?.scrollTop || 0
+      const scrollHeightBefore = contentRef.current?.scrollHeight || 0
+      
       const response = await api.get(`/api/books/${id}/chapter/${targetIndex}`, {
         params: { buffer: 1 }
       })
@@ -502,19 +532,32 @@ export default function ReaderPage() {
         if (direction === 'prev') {
           // 向前加载，把新章节放到开头
           const newChapters = data.chapters.filter((ch: LoadedChapter) => ch.index < loadedRange.start)
-          setLoadedChapters(prev => [...newChapters, ...prev])
-          setLoadedRange(prev => ({
-            start: data.loadedRange.start,
-            end: prev.end
-          }))
+          if (newChapters.length > 0) {
+            setLoadedChapters(prev => [...newChapters, ...prev])
+            setLoadedRange(prev => ({
+              start: data.loadedRange.start,
+              end: prev.end
+            }))
+            
+            // 在下一帧调整滚动位置，保持当前阅读位置不变
+            requestAnimationFrame(() => {
+              if (contentRef.current) {
+                const scrollHeightAfter = contentRef.current.scrollHeight
+                const heightDiff = scrollHeightAfter - scrollHeightBefore
+                contentRef.current.scrollTop = scrollBefore + heightDiff
+              }
+            })
+          }
         } else {
           // 向后加载，把新章节放到末尾
           const newChapters = data.chapters.filter((ch: LoadedChapter) => ch.index > loadedRange.end)
-          setLoadedChapters(prev => [...prev, ...newChapters])
-          setLoadedRange(prev => ({
-            start: prev.start,
-            end: data.loadedRange.end
-          }))
+          if (newChapters.length > 0) {
+            setLoadedChapters(prev => [...prev, ...newChapters])
+            setLoadedRange(prev => ({
+              start: prev.start,
+              end: data.loadedRange.end
+            }))
+          }
         }
       }
     } catch (err) {
