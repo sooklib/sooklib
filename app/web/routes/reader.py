@@ -218,7 +218,13 @@ async def _get_mobi_text(file_path: Path) -> Optional[str]:
         # 检查缓存
         if cache_path.exists():
             log.debug(f"使用MOBI文本缓存: {file_path.name}")
-            return await _read_txt_file(cache_path)
+            cached_content = await _read_txt_file(cache_path)
+            if cached_content and cached_content.strip():
+                return cached_content
+            else:
+                # 缓存文件为空，删除并重新提取
+                log.warning(f"缓存文件为空，重新提取: {file_path.name}")
+                cache_path.unlink()
             
         # 提取文本
         log.info(f"提取MOBI文本: {file_path.name}")
@@ -229,17 +235,20 @@ async def _get_mobi_text(file_path: Path) -> Optional[str]:
         loop = asyncio.get_event_loop()
         content = await loop.run_in_executor(None, mobi_parser.extract_text, file_path)
         
-        if content:
+        if content and content.strip():
             # 清理内容
             content = _clean_txt_content(content)
             # 写入缓存
             with open(cache_path, 'w', encoding='utf-8') as f:
                 f.write(content)
+            log.info(f"MOBI文本提取成功并缓存: {file_path.name}, {len(content)} 字符")
             return content
+        else:
+            log.error(f"MOBI文本提取结果为空: {file_path.name}")
+            return None
             
-        return None
     except Exception as e:
-        log.error(f"获取MOBI文本失败: {e}")
+        log.error(f"获取MOBI文本失败: {file_path}, 错误: {e}", exc_info=True)
         return None
 
 
