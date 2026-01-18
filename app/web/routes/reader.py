@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Book, User
+from app.models import Book, User, BookVersion
 from app.web.routes.auth import get_current_user
 from app.web.routes.dependencies import get_accessible_book
 from app.utils.logger import log
@@ -664,7 +664,7 @@ async def search_in_book(
 @router.get("/books/{book_id}/cover")
 async def get_book_cover(
     book_id: int,
-    size: str = Query("original", regex="^(original|thumbnail)$"),
+    size: str = Query("original", pattern="^(original|thumbnail)$"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -699,6 +699,76 @@ async def get_book_cover(
     
     # 没有封面时返回404，让前端显示fallback UI
     raise HTTPException(status_code=404, detail="该书籍没有封面")
+
+
+def _parse_chapters(content: str) -> list:
+    """
+    解析TXT内容中的章节
+    
+    返回章节列表，每个章节包含:
+    - title: 章节标题
+    - startOffset: 起始位置
+    - endOffset: 结束位置
+    """
+    import re
+    
+    chapters = []
+    
+    # 常见的章节标题模式
+    chapter_patterns = [
+        # 第X章、第X节、第X回
+        r'^第[零一二三四五六七八九十百千万\d]+[章节回卷集部篇].*?$',
+        # Chapter X
+        r'^Chapter\s+\d+.*?$',
+        # 数字章节 001、1.
+        r'^\d{1,4}[\.、].*?$',
+        # 序章、楔子、引子、前言、后记等
+        r'^(序[章言]|楔子|引子|前言|后记|尾声|番外|终章|大结局).*?$',
+        # 卷X
+        r'^卷[零一二三四五六七八九十百千万\d]+.*?$',
+    ]
+    
+    # 合并所有模式
+    combined_pattern = '|'.join(f'({p})' for p in chapter_patterns)
+    
+    # 查找所有章节标题
+    matches = list(re.finditer(combined_pattern, content, re.MULTILINE | re.IGNORECASE))
+    
+    if not matches:
+        # 如果没有找到章节，将整个内容作为一个章节
+        chapters.append({
+            "title": "全文",
+            "startOffset": 0,
+            "endOffset": len(content)
+        })
+        return chapters
+    
+    # 根据匹配结果构建章节列表
+    for i, match in enumerate(matches):
+        title = match.group().strip()
+        start_offset = match.start()
+        
+        # 结束位置是下一章的开始或文件末尾
+        if i + 1 < len(matches):
+            end_offset = matches[i + 1].start()
+        else:
+            end_offset = len(content)
+        
+        chapters.append({
+            "title": title,
+            "startOffset": start_offset,
+            "endOffset": end_offset
+        })
+    
+    # 如果第一章不是从文件开头开始，添加一个"序"章节
+    if matches and matches[0].start() > 100:  # 超过100字符才添加
+        chapters.insert(0, {
+            "title": "序",
+            "startOffset": 0,
+            "endOffset": matches[0].start()
+        })
+    
+    return chapters
 
 
 def _clean_txt_content(content: str) -> str:
