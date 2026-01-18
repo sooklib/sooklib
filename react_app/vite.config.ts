@@ -72,8 +72,10 @@ export default defineConfig({
     }
   },
   build: {
+    target: ['es2015', 'chrome87', 'edge88', 'firefox78', 'safari14'],
     outDir: 'dist',
     sourcemap: false,
+    cssTarget: ['chrome87', 'edge88', 'firefox78', 'safari14'],
     rollupOptions: {
       output: {
         manualChunks: {

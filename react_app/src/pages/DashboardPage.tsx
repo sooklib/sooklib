@@ -169,21 +169,33 @@ export default function DashboardPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">继续阅读</Typography>
           </Box>
-          <Grid container spacing={2}>
+          {/* 使用水平滚动容器，类似 Emby */}
+          <Box 
+            sx={{ 
+              display: 'flex', 
+              overflowX: 'auto', 
+              pb: 2, 
+              mx: -2, 
+              px: 2,
+              gap: 2,
+              '::-webkit-scrollbar': { display: 'none' },
+              scrollbarWidth: 'none'
+            }}
+          >
             {loading ? (
               [1, 2, 3].map((i) => (
-                <Grid item xs={12} sm={6} md={4} key={i}>
+                <Box key={i} sx={{ minWidth: 300, flexShrink: 0 }}>
                   <ContinueReadingCard loading />
-                </Grid>
+                </Box>
               ))
             ) : (
-              data?.continue_reading.slice(0, 6).map((item) => (
-                <Grid item xs={12} sm={6} md={4} key={item.id}>
+              data?.continue_reading.slice(0, 10).map((item) => (
+                <Box key={item.id} sx={{ minWidth: 300, flexShrink: 0 }}>
                   <ContinueReadingCard item={item} />
-                </Grid>
+                </Box>
               ))
             )}
-          </Grid>
+          </Box>
         </Box>
       )}
 

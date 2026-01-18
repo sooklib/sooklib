@@ -46,20 +46,9 @@ async def get_book_toc(
     
     await db.refresh(book, ['versions'])
     
-    primary_version = None
-    if book.versions:
-        primary_version = next((v for v in book.versions if v.is_primary), None)
-        if not primary_version:
-            primary_version = book.versions[0] if book.versions else None
-    
-    if not primary_version:
-        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
-    
-    file_path = Path(primary_version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    
-    file_format = primary_version.file_format.lower()
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
+    file_format = version.file_format.lower()
     
     if file_format in ['txt', '.txt']:
         # 读取全文并解析章节（仅提取目录，不返回内容）
@@ -143,20 +132,9 @@ async def get_chapter_content(
     
     await db.refresh(book, ['versions'])
     
-    primary_version = None
-    if book.versions:
-        primary_version = next((v for v in book.versions if v.is_primary), None)
-        if not primary_version:
-            primary_version = book.versions[0] if book.versions else None
-    
-    if not primary_version:
-        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
-    
-    file_path = Path(primary_version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    
-    file_format = primary_version.file_format.lower()
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
+    file_format = version.file_format.lower()
     
     if file_format not in ['txt', '.txt']:
         raise HTTPException(status_code=400, detail="此API仅支持TXT格式")
@@ -266,22 +244,11 @@ async def get_book_content(
     # 加载书籍版本
     await db.refresh(book, ['versions'])
     
-    # 获取主版本
-    primary_version = None
-    if book.versions:
-        primary_version = next((v for v in book.versions if v.is_primary), None)
-        if not primary_version:
-            primary_version = book.versions[0] if book.versions else None
-    
-    if not primary_version:
-        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
-    
-    file_path = Path(primary_version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
     
     # 根据文件格式返回内容
-    file_format = primary_version.file_format.lower()
+    file_format = version.file_format.lower()
     
     if file_format == 'txt' or file_format == '.txt':
         return await _read_txt_content(file_path, page)
@@ -290,13 +257,13 @@ async def get_book_content(
         return FileResponse(
             file_path,
             media_type="application/epub+zip",
-            filename=primary_version.file_name
+            filename=version.file_name
         )
     elif file_format == 'pdf' or file_format == '.pdf':
         return FileResponse(
             file_path,
             media_type="application/pdf",
-            filename=primary_version.file_name
+            filename=version.file_name
         )
     else:
         raise HTTPException(
@@ -323,20 +290,9 @@ async def get_comic_page(
     
     await db.refresh(book, ['versions'])
     
-    primary_version = None
-    if book.versions:
-        primary_version = next((v for v in book.versions if v.is_primary), None)
-        if not primary_version:
-            primary_version = book.versions[0] if book.versions else None
-    
-    if not primary_version:
-        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
-    
-    file_path = Path(primary_version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    
-    file_format = primary_version.file_format.lower()
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
+    file_format = version.file_format.lower()
     if file_format not in ['zip', '.zip', 'cbz', '.cbz']:
         raise HTTPException(status_code=400, detail="不是漫画文件")
 
@@ -522,24 +478,13 @@ async def download_book(
     if not await check_book_access(current_user, book_id, db):
         raise HTTPException(status_code=403, detail="无权访问此书籍")
     
-    # 获取主版本
-    primary_version = None
-    if book.versions:
-        primary_version = next((v for v in book.versions if v.is_primary), None)
-        if not primary_version:
-            primary_version = book.versions[0] if book.versions else None
-    
-    if not primary_version:
-        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
-    
-    file_path = Path(primary_version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
     
     # 返回文件
     return FileResponse(
         file_path,
-        filename=primary_version.file_name,
+        filename=version.file_name,
         media_type="application/octet-stream"
     )
 
@@ -566,20 +511,9 @@ async def search_in_book(
     
     await db.refresh(book, ['versions'])
     
-    primary_version = None
-    if book.versions:
-        primary_version = next((v for v in book.versions if v.is_primary), None)
-        if not primary_version:
-            primary_version = book.versions[0] if book.versions else None
-    
-    if not primary_version:
-        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
-    
-    file_path = Path(primary_version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    
-    file_format = primary_version.file_format.lower()
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
+    file_format = version.file_format.lower()
     
     if file_format not in ['txt', '.txt']:
         raise HTTPException(status_code=400, detail="书内搜索仅支持TXT格式")
@@ -732,3 +666,27 @@ def _clean_txt_content(content: str) -> str:
     content = '\n'.join(cleaned_lines)
     
     return content.strip()
+
+
+async def _get_valid_version(book: Book) -> BookVersion:
+    """
+    获取书籍的有效版本（优先主版本，其次检查文件是否存在）
+    """
+    if not book.versions:
+        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
+    
+    # 1. 尝试主版本
+    primary = next((v for v in book.versions if v.is_primary), None)
+    if primary and Path(primary.file_path).exists():
+        return primary
+        
+    # 2. 尝试其他版本
+    for version in book.versions:
+        if version == primary:
+            continue
+        if Path(version.file_path).exists():
+            log.warning(f"书籍 {book.id} 主版本丢失，回退到版本: {version.file_path}")
+            return version
+            
+    # 3. 找不到有效文件
+    raise HTTPException(status_code=404, detail="书籍文件不存在")

@@ -226,6 +226,7 @@ export default function ReaderPage() {
   const [savedChapterIndex, setSavedChapterIndex] = useState<number | null>(null)
   const [savedChapterOffset, setSavedChapterOffset] = useState<number>(0)
   const pendingScrollOffsetRef = useRef<number>(0)  // 待恢复的滚动偏移
+  const lastSaveTimeRef = useRef<number>(0) // 上次保存进度的时间
   
   // 阅读统计相关 Refs
   const sessionIdRef = useRef<number | null>(null)
@@ -431,6 +432,8 @@ export default function ReaderPage() {
   }, [id])
 
   // 保存进度（防抖）
+  // 注意：这个 Effect 主要响应章节变化或非 TXT 格式的进度变化
+  // TXT 格式的章节内滚动保存由 handleScroll 处理
   useEffect(() => {
     const timer = setTimeout(() => {
       if (currentChapter >= 0 && id && !isEpub && format === 'txt') {
@@ -442,6 +445,12 @@ export default function ReaderPage() {
     }, 1000)
     return () => clearTimeout(timer)
   }, [currentChapter, progress, format])
+
+  // 使用 ref 保持 saveProgress 的最新引用，以便在 handleScroll 中使用
+  const saveProgressRef = useRef(saveProgress)
+  useEffect(() => {
+    saveProgressRef.current = saveProgress
+  }, [saveProgress])
 
   // 页面卸载时保存进度
   useEffect(() => {
@@ -1013,6 +1022,13 @@ export default function ReaderPage() {
     // 接近底部，加载后面的章节
     if (scrollTop + clientHeight > scrollHeight - 500 && loadedRange.end < totalChapters - 1) {
       loadMoreChapters('next')
+    }
+
+    // 定期保存进度 (每 5 秒)
+    const now = Date.now()
+    if (now - lastSaveTimeRef.current > 5000) {
+      saveProgressRef.current()
+      lastSaveTimeRef.current = now
     }
   }, [currentChapter, isEpub, loadedChapters, loadedRange, totalChapters, totalLength, format])
 

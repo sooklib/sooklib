@@ -1,1249 +1,388 @@
 """
-AI 配置 API 路由
+AI 路由
+处理 AI 相关功能，如文件名分析、标签提取等
 """
-import re
 import json
-from typing import Optional, List
-from pathlib import Path
+import asyncio
+import uuid
+from typing import List, Optional, Dict
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.web.routes.admin import admin_required
-from app.core.ai.config import ai_config
-from app.core.ai.service import get_ai_service
-from app.models import FilenamePattern, Library, BookVersion, Book, Author
+from app.models import Book, Library, FilenamePattern, Tag, User
+from app.web.routes.auth import get_current_admin, get_current_user
+from app.utils.logger import log
+from app.utils.filename_analyzer import analyze_filename_with_ai
+from app.core.ai.service import ai_service
 
+router = APIRouter()
 
-router = APIRouter(prefix="/api/admin/ai", tags=["AI管理"])
+# ===== 内存任务存储 =====
+# 注意：生产环境建议使用 Redis 或数据库
+# 结构: task_id -> TaskInfo
+analysis_tasks: Dict[str, dict] = {}
 
+# ===== Pydantic 模型 =====
 
-class ProviderUpdate(BaseModel):
-    """AI提供商配置更新"""
-    provider: Optional[str] = None  # openai, claude, ollama, custom
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
+class FilenameAnalysisRequest(BaseModel):
+    """文件名分析请求"""
+    filenames: List[str]
+    library_id: Optional[int] = None
+    provider: str = "openai"  # openai, anthropic, ollama
     model: Optional[str] = None
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
-    timeout: Optional[int] = None
-    sample_size: Optional[int] = None  # AI分析采样数
-    enabled: Optional[bool] = None
 
+class FilenameAnalysisResult(BaseModel):
+    """文件名分析结果"""
+    original: str
+    title: str
+    author: Optional[str] = None
+    extra: Optional[str] = None
+    tags: List[str] = []
+    confidence: float
 
-class FeaturesUpdate(BaseModel):
-    """AI功能配置更新"""
-    metadata_enhancement: Optional[bool] = None
-    auto_extract_title: Optional[bool] = None
-    auto_extract_author: Optional[bool] = None
-    auto_generate_summary: Optional[bool] = None
-    smart_classification: Optional[bool] = None
-    auto_tagging: Optional[bool] = None
-    content_rating: Optional[bool] = None
-    semantic_search: Optional[bool] = None
-    batch_limit: Optional[int] = None
-    daily_limit: Optional[int] = None
+class BatchAnalysisResponse(BaseModel):
+    """批量分析响应（同步）"""
+    results: List[FilenameAnalysisResult]
+    total: int
+    success: int
+    failed: int
 
+class TaskResponse(BaseModel):
+    """任务创建响应"""
+    task_id: str
+    status: str
+    message: str
 
-@router.get("/config")
-async def get_ai_config(admin = Depends(admin_required)):
-    """获取AI配置"""
-    return ai_config.to_dict()
+class TaskStatusResponse(BaseModel):
+    """任务状态响应"""
+    task_id: str
+    status: str  # pending, running, completed, failed
+    progress: float  # 0-100
+    processed: int
+    total: int
+    results: Optional[List[FilenameAnalysisResult]] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
 
+# ===== 后台任务处理 =====
 
-@router.get("/status")
-async def get_ai_status(admin = Depends(admin_required)):
-    """获取AI状态"""
-    return ai_config.get_status()
-
-
-@router.put("/provider")
-async def update_provider(data: ProviderUpdate, admin = Depends(admin_required)):
-    """更新AI提供商配置"""
-    update_data = {k: v for k, v in data.dict().items() if v is not None}
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="没有要更新的数据")
-    
-    ai_config.update_provider(**update_data)
-    return {"message": "配置已更新", "config": ai_config.to_dict()['provider']}
-
-
-@router.put("/features")
-async def update_features(data: FeaturesUpdate, admin = Depends(admin_required)):
-    """更新AI功能配置"""
-    update_data = {k: v for k, v in data.dict().items() if v is not None}
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="没有要更新的数据")
-    
-    ai_config.update_features(**update_data)
-    return {"message": "配置已更新", "config": ai_config.to_dict()['features']}
-
-
-@router.post("/test")
-async def test_connection(admin = Depends(admin_required)):
-    """测试AI连接"""
-    if not ai_config.is_enabled():
-        raise HTTPException(status_code=400, detail="AI功能未启用，请先配置API密钥")
-    
-    service = get_ai_service()
-    result = await service.test_connection()
-    
-    if result.success:
-        return {
-            "success": True,
-            "message": "连接成功",
-            "response": result.content,
-            "usage": result.usage
-        }
-    else:
-        return {
-            "success": False,
-            "message": "连接失败",
-            "error": result.error
-        }
-
-
-@router.post("/extract-metadata")
-async def extract_metadata(
-    filename: str,
-    content_preview: str = "",
-    admin = Depends(admin_required)
+async def process_batch_analysis(
+    task_id: str, 
+    filenames: List[str], 
+    provider: str, 
+    model: Optional[str]
 ):
-    """使用AI提取元数据（测试）"""
-    if not ai_config.is_enabled():
-        raise HTTPException(status_code=400, detail="AI功能未启用")
+    """处理批量分析后台任务"""
+    task = analysis_tasks.get(task_id)
+    if not task:
+        return
+
+    task["status"] = "running"
+    task["started_at"] = datetime.now()
     
-    service = get_ai_service()
-    result = await service.extract_metadata(filename, content_preview)
+    results = []
     
-    return {
-        "success": bool(result),
-        "metadata": result
-    }
-
-
-@router.post("/classify")
-async def classify_book(
-    title: str,
-    content_preview: str = "",
-    admin = Depends(admin_required)
-):
-    """使用AI分类书籍（测试）"""
-    if not ai_config.is_enabled():
-        raise HTTPException(status_code=400, detail="AI功能未启用")
-    
-    service = get_ai_service()
-    result = await service.classify_book(title, content_preview)
-    
-    return {
-        "success": bool(result),
-        "classification": result
-    }
-
-
-# 预设模型列表
-PRESET_MODELS = {
-    "openai": [
-        {"id": "gpt-4", "name": "GPT-4"},
-        {"id": "gpt-4-turbo-preview", "name": "GPT-4 Turbo"},
-        {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo"},
-        {"id": "gpt-3.5-turbo-16k", "name": "GPT-3.5 Turbo 16K"},
-    ],
-    "claude": [
-        {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus"},
-        {"id": "claude-3-sonnet-20240229", "name": "Claude 3 Sonnet"},
-        {"id": "claude-3-haiku-20240307", "name": "Claude 3 Haiku"},
-        {"id": "claude-2.1", "name": "Claude 2.1"},
-    ],
-    "ollama": [
-        {"id": "llama2", "name": "Llama 2"},
-        {"id": "llama3", "name": "Llama 3"},
-        {"id": "mistral", "name": "Mistral"},
-        {"id": "qwen", "name": "Qwen"},
-        {"id": "yi", "name": "Yi"},
-    ],
-}
-
-
-@router.get("/models")
-async def get_models(provider: Optional[str] = None, admin = Depends(admin_required)):
-    """获取预设模型列表"""
-    if provider:
-        return PRESET_MODELS.get(provider, [])
-    return PRESET_MODELS
-
-
-# ================== 文件名规则管理 ==================
-
-class PatternCreate(BaseModel):
-    """创建文件名规则"""
-    name: str
-    regex_pattern: str
-    description: Optional[str] = None
-    title_group: int = 1
-    author_group: int = 2
-    extra_group: int = 0
-    priority: int = 0
-    library_id: Optional[int] = None
-    example_filename: Optional[str] = None
-
-
-class PatternUpdate(BaseModel):
-    """更新文件名规则"""
-    name: Optional[str] = None
-    regex_pattern: Optional[str] = None
-    description: Optional[str] = None
-    title_group: Optional[int] = None
-    author_group: Optional[int] = None
-    extra_group: Optional[int] = None
-    priority: Optional[int] = None
-    is_active: Optional[bool] = None
-    library_id: Optional[int] = None
-    example_filename: Optional[str] = None
-
-
-@router.get("/patterns")
-async def list_patterns(
-    library_id: Optional[int] = None,
-    active_only: bool = False,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """获取所有文件名规则"""
-    from sqlalchemy import or_
-    
-    query = select(FilenamePattern)
-    
-    if library_id:
-        query = query.where(
-            or_(FilenamePattern.library_id == library_id, FilenamePattern.library_id == None)
-        )
-    
-    if active_only:
-        query = query.where(FilenamePattern.is_active == True)
-    
-    query = query.order_by(FilenamePattern.priority.desc())
-    result = await db.execute(query)
-    patterns = result.scalars().all()
-    
-    return [{
-        "id": p.id,
-        "name": p.name,
-        "description": p.description,
-        "regex_pattern": p.regex_pattern,
-        "title_group": p.title_group,
-        "author_group": p.author_group,
-        "extra_group": p.extra_group,
-        "priority": p.priority,
-        "is_active": p.is_active,
-        "library_id": p.library_id,
-        "match_count": p.match_count,
-        "success_count": p.success_count,
-        "accuracy_rate": p.accuracy_rate,
-        "created_by": p.created_by,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
-        "example_filename": p.example_filename,
-        "example_result": json.loads(p.example_result) if p.example_result else None
-    } for p in patterns]
-
-
-@router.post("/patterns")
-async def create_pattern(
-    data: PatternCreate,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """创建文件名规则"""
-    # 验证正则表达式
     try:
-        compiled = re.compile(data.regex_pattern)
-        group_count = compiled.groups
-        if data.title_group > group_count or data.author_group > group_count:
-            raise HTTPException(400, f"正则表达式只有 {group_count} 个捕获组")
-    except re.error as e:
-        raise HTTPException(400, f"无效的正则表达式: {e}")
-    
-    # 如果有示例文件名，测试匹配
-    example_result = None
-    if data.example_filename:
-        match = compiled.match(data.example_filename)
-        if match:
-            groups = match.groups()
-            example_result = {
-                "title": groups[data.title_group - 1] if data.title_group > 0 and data.title_group <= len(groups) else None,
-                "author": groups[data.author_group - 1] if data.author_group > 0 and data.author_group <= len(groups) else None,
-                "extra": groups[data.extra_group - 1] if data.extra_group > 0 and data.extra_group <= len(groups) else None
-            }
-    
-    pattern = FilenamePattern(
-        name=data.name,
-        description=data.description,
-        regex_pattern=data.regex_pattern,
-        title_group=data.title_group,
-        author_group=data.author_group,
-        extra_group=data.extra_group,
-        priority=data.priority,
-        library_id=data.library_id,
-        example_filename=data.example_filename,
-        example_result=json.dumps(example_result, ensure_ascii=False) if example_result else None,
-        created_by='manual'
-    )
-    
-    db.add(pattern)
-    await db.commit()
-    await db.refresh(pattern)
-    
-    return {
-        "id": pattern.id,
-        "name": pattern.name,
-        "message": "规则创建成功",
-        "example_result": example_result
-    }
-
-
-@router.put("/patterns/{pattern_id}")
-async def update_pattern(
-    pattern_id: int,
-    data: PatternUpdate,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """更新文件名规则"""
-    result = await db.execute(select(FilenamePattern).where(FilenamePattern.id == pattern_id))
-    pattern = result.scalar_one_or_none()
-    if not pattern:
-        raise HTTPException(404, "规则不存在")
-    
-    # 验证新的正则表达式
-    if data.regex_pattern:
-        try:
-            compiled = re.compile(data.regex_pattern)
-            group_count = compiled.groups
-            title_group = data.title_group or pattern.title_group
-            author_group = data.author_group or pattern.author_group
-            if title_group > group_count or author_group > group_count:
-                raise HTTPException(400, f"正则表达式只有 {group_count} 个捕获组")
-        except re.error as e:
-            raise HTTPException(400, f"无效的正则表达式: {e}")
-    
-    # 更新字段
-    for key, value in data.dict().items():
-        if value is not None:
-            setattr(pattern, key, value)
-    
-    # 重新测试示例
-    if pattern.example_filename:
-        compiled = re.compile(pattern.regex_pattern)
-        match = compiled.match(pattern.example_filename)
-        if match:
-            groups = match.groups()
-            example_result = {
-                "title": groups[pattern.title_group - 1] if pattern.title_group > 0 and pattern.title_group <= len(groups) else None,
-                "author": groups[pattern.author_group - 1] if pattern.author_group > 0 and pattern.author_group <= len(groups) else None,
-                "extra": groups[pattern.extra_group - 1] if pattern.extra_group > 0 and pattern.extra_group <= len(groups) else None
-            }
-            pattern.example_result = json.dumps(example_result, ensure_ascii=False)
-    
-    await db.commit()
-    
-    return {"message": "规则更新成功"}
-
-
-@router.delete("/patterns/{pattern_id}")
-async def delete_pattern(
-    pattern_id: int,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """删除文件名规则"""
-    result = await db.execute(select(FilenamePattern).where(FilenamePattern.id == pattern_id))
-    pattern = result.scalar_one_or_none()
-    if not pattern:
-        raise HTTPException(404, "规则不存在")
-    
-    await db.delete(pattern)
-    await db.commit()
-    
-    return {"message": "规则删除成功"}
-
-
-@router.post("/patterns/test")
-async def test_pattern(
-    regex_pattern: str,
-    filename: str,
-    title_group: int = 1,
-    author_group: int = 2,
-    extra_group: int = 0,
-    admin = Depends(admin_required)
-):
-    """测试正则表达式匹配"""
-    try:
-        compiled = re.compile(regex_pattern)
-    except re.error as e:
-        return {"success": False, "error": f"无效的正则表达式: {e}"}
-    
-    match = compiled.match(filename)
-    if not match:
-        return {"success": False, "error": "不匹配", "matched": False}
-    
-    groups = match.groups()
-    result = {
-        "success": True,
-        "matched": True,
-        "groups": groups,
-        "parsed": {
-            "title": groups[title_group - 1] if title_group > 0 and title_group <= len(groups) else None,
-            "author": groups[author_group - 1] if author_group > 0 and author_group <= len(groups) else None,
-            "extra": groups[extra_group - 1] if extra_group > 0 and extra_group <= len(groups) else None
-        }
-    }
-    
-    return result
-
-
-@router.post("/patterns/analyze-library/{library_id}")
-async def analyze_library_patterns(
-    library_id: int,
-    use_ai: bool = True,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """分析书库文件名模式"""
-    result = await db.execute(select(Library).where(Library.id == library_id))
-    library = result.scalar_one_or_none()
-    if not library:
-        raise HTTPException(404, "书库不存在")
-    
-    # 获取书库中的所有文件名
-    from sqlalchemy.orm import selectinload
-    result = await db.execute(
-        select(BookVersion).options(selectinload(BookVersion.book))
-        .join(Book)
-        .where(Book.library_id == library_id)
-    )
-    versions = result.scalars().all()
-    
-    if not versions:
-        return {"success": False, "error": "书库中没有书籍"}
-    
-    filenames = [v.file_name for v in versions]
-    
-    if use_ai and ai_config.is_enabled():
-        # 使用AI分析
-        service = get_ai_service()
-        ai_result = await service.analyze_filename_patterns(filenames)
-        
-        if ai_result.get("success"):
-            # 可选：自动创建规则
-            patterns_created = []
-            for pattern_data in ai_result.get("patterns", []):
-                if pattern_data.get("confidence", 0) >= 0.7:
-                    # 检查规则是否已存在
-                    check = await db.execute(
-                        select(FilenamePattern).where(
-                            FilenamePattern.regex_pattern == pattern_data.get("regex")
-                        )
-                    )
-                    existing = check.scalar_one_or_none()
-                    
-                    if not existing:
-                        pattern = FilenamePattern(
-                            name=pattern_data.get("name", "AI生成规则"),
-                            description=pattern_data.get("description"),
-                            regex_pattern=pattern_data.get("regex"),
-                            title_group=pattern_data.get("title_group", 1),
-                            author_group=pattern_data.get("author_group", 2),
-                            extra_group=pattern_data.get("extra_group", 0),
-                            library_id=library_id,
-                            created_by='ai',
-                            example_filename=pattern_data.get("examples", [None])[0]
-                        )
-                        db.add(pattern)
-                        patterns_created.append(pattern_data.get("name"))
-            
-            if patterns_created:
-                await db.commit()
-            
-            ai_result["patterns_created"] = patterns_created
-        
-        return ai_result
-    else:
-        # 使用传统分析
-        from app.utils.filename_analyzer import FilenameAnalyzer
-        analyzer = FilenameAnalyzer()
-        analyze_result = analyzer.analyze_filenames(filenames)
-        analyze_result["ai_used"] = False
-        return analyze_result
-
-
-@router.post("/patterns/suggest")
-async def suggest_pattern_for_filename(
-    filename: str,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """为单个文件名建议规则"""
-    if not ai_config.is_enabled():
-        raise HTTPException(400, "AI功能未启用")
-    
-    # 获取现有规则
-    result = await db.execute(
-        select(FilenamePattern)
-        .where(FilenamePattern.is_active == True)
-        .order_by(FilenamePattern.priority.desc())
-        .limit(5)
-    )
-    existing_patterns = result.scalars().all()
-    
-    existing = [{"name": p.name, "regex": p.regex_pattern} for p in existing_patterns]
-    
-    service = get_ai_service()
-    suggest_result = await service.suggest_pattern_for_filename(filename, existing)
-    
-    return suggest_result
-
-
-@router.post("/patterns/batch-analyze-library/{library_id}")
-async def batch_analyze_library(
-    library_id: int,
-    batch_size: int = 1000,
-    apply_results: bool = False,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """
-    批量AI分析书库文件名（少次多量原则，防止429）
-    
-    - batch_size: 每批处理数量，默认1000
-    - apply_results: 是否自动应用分析结果（更新书籍元数据）
-    
-    返回：识别的书名、作者、额外信息（包含点评）、生成的规则
-    """
-    if not ai_config.is_enabled():
-        raise HTTPException(400, "AI功能未启用")
-    
-    lib_result = await db.execute(select(Library).where(Library.id == library_id))
-    library = lib_result.scalar_one_or_none()
-    if not library:
-        raise HTTPException(404, "书库不存在")
-    
-    # 获取所有文件名
-    from sqlalchemy.orm import selectinload
-    version_result = await db.execute(
-        select(BookVersion).options(
-            selectinload(BookVersion.book).selectinload(Book.author)
-        ).join(Book).where(Book.library_id == library_id)
-    )
-    versions = version_result.scalars().all()
-    
-    if not versions:
-        return {"success": False, "error": "书库中没有书籍"}
-    
-    # 构建文件名到版本的映射
-    filename_to_version = {v.file_name: v for v in versions}
-    filenames = list(filename_to_version.keys())
-    
-    # 调用批量分析
-    service = get_ai_service()
-    result = await service.batch_analyze_filenames(filenames, batch_size=batch_size)
-    
-    if not result.get("success"):
-        return result
-    
-    # 如果需要应用结果
-    applied_count = 0
-    reviews_added = 0
-    
-    if apply_results and result.get("recognized_books"):
-        for book_info in result["recognized_books"]:
-            filename = book_info.get("filename")
-            if filename not in filename_to_version:
-                continue
-            
-            version = filename_to_version[filename]
-            book = version.book
-            
-            # 更新书名
-            if book_info.get("title"):
-                book.title = book_info["title"].strip()
-                applied_count += 1
-            
-            # 更新作者
-            if book_info.get("author"):
-                author_name = book_info["author"].strip()
-                # 查找或创建作者
-                author_result = await db.execute(select(Author).where(Author.name == author_name))
-                author = author_result.scalar_one_or_none()
-                if not author:
-                    author = Author(name=author_name)
-                    db.add(author)
-                    await db.flush()
-                book.author_id = author.id
-            
-            # 如果有点评/评价，添加到简介
-            if book_info.get("has_review") and book_info.get("review_text"):
-                review_text = book_info["review_text"].strip()
-                if book.description:
-                    # 追加到现有简介
-                    if review_text not in book.description:
-                        book.description = f"{book.description}\n\n【读者评价】{review_text}"
-                        reviews_added += 1
-                else:
-                    book.description = f"【读者评价】{review_text}"
-                    reviews_added += 1
-        
-        await db.commit()
-    
-    # 保存生成的规则
-    patterns_created = []
-    for pattern_data in result.get("patterns", []):
-        regex = pattern_data.get("regex")
-        if not regex:
-            continue
-        
-        # 检查规则是否已存在
-        check_result = await db.execute(
-            select(FilenamePattern).where(FilenamePattern.regex_pattern == regex)
-        )
-        existing = check_result.scalar_one_or_none()
-        
-        if not existing:
+        total = len(filenames)
+        for i, filename in enumerate(filenames):
+            # 检查任务是否被取消（暂不支持，但预留逻辑）
+            if task.get("status") == "cancelled":
+                break
+                
             try:
-                # 验证正则表达式
-                re.compile(regex)
+                # 调用 AI 分析
+                prompt = f"""
+                请分析以下小说文件名，提取书名、作者和额外信息。
+                文件名：{filename}
                 
-                pattern = FilenamePattern(
-                    name=pattern_data.get("name", "AI生成规则"),
-                    regex_pattern=regex,
-                    title_group=pattern_data.get("title_group", 1),
-                    author_group=pattern_data.get("author_group", 2),
-                    extra_group=pattern_data.get("extra_group", 0),
-                    library_id=library_id,
-                    match_count=pattern_data.get("match_count", 0),
-                    created_by='ai'
+                请返回 JSON 格式：
+                {{
+                    "title": "书名",
+                    "author": "作者(如果没有则为null)",
+                    "extra": "额外信息(如卷数、状态等，没有则为null)",
+                    "tags": ["标签1", "标签2"]
+                }}
+                只返回 JSON，不要其他内容。
+                """
+                
+                response = await ai_service.generate_completion(
+                    prompt=prompt,
+                    provider=provider,
+                    model=model
                 )
-                db.add(pattern)
-                patterns_created.append(pattern_data.get("name"))
-            except:
-                pass
-    
-    if patterns_created:
-        await db.commit()
-    
-    result["patterns_created"] = patterns_created
-    result["applied_count"] = applied_count
-    result["reviews_added"] = reviews_added
-    
-    # 限制返回的书籍详情数量
-    if len(result.get("recognized_books", [])) > 100:
-        result["recognized_books"] = result["recognized_books"][:100]
-        result["books_truncated"] = True
-    
-    return result
-
-
-@router.post("/libraries/{library_id}/ai-extract")
-async def ai_extract_library(
-    library_id: int,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """
-    AI提取书库元数据（预览模式，不自动应用）
-    
-    使用AI分析书库中书籍的文件名，返回：
-    - 书名、作者、简介、标签
-    
-    采样数使用AI配置中的sample_size
-    """
-    if not ai_config.is_enabled():
-        raise HTTPException(400, "AI功能未启用")
-    
-    lib_result = await db.execute(select(Library).where(Library.id == library_id))
-    library = lib_result.scalar_one_or_none()
-    if not library:
-        raise HTTPException(404, "书库不存在")
-    
-    # 获取所有书籍
-    from sqlalchemy.orm import selectinload
-    versions_result = await db.execute(
-        select(BookVersion).options(
-            selectinload(BookVersion.book).selectinload(Book.author)
-        ).join(Book).where(Book.library_id == library_id)
-    )
-    versions = versions_result.scalars().all()
-    
-    if not versions:
-        return {"success": False, "error": "书库中没有书籍"}
-    
-    # 采样
-    import random
-    sample_size = ai_config.provider.sample_size or 15
-    if len(versions) > sample_size:
-        sampled_versions = random.sample(list(versions), sample_size)
-    else:
-        sampled_versions = list(versions)
-    
-    # 构建提示词，要求AI返回更多信息
-    filenames = [v.file_name for v in sampled_versions]
-    filename_list = "\n".join([f"{i+1}. {fn}" for i, fn in enumerate(filenames)])
-    
-    prompt = f"""请分析以下{len(filenames)}个小说文件名，为每个文件名提取完整元数据。
-
-文件名列表：
-{filename_list}
-
-请为每个文件名提取：
-1. 书名（title）
-2. 作者（author，无则null）
-3. 简介（description，根据书名推测生成50-100字的简介）
-4. 标签（tags，根据书名判断适合的标签，如类型、风格等，最多5个）
-
-返回JSON格式：
-{{
-    "books": [
-        {{
-            "index": 1,
-            "filename": "原文件名",
-            "title": "提取的书名",
-            "author": "作者或null",
-            "description": "生成的简介",
-            "tags": ["标签1", "标签2"]
-        }}
-    ]
-}}
-
-返回纯JSON："""
-    
-    service = get_ai_service()
-    response = await service.chat([
-        {"role": "system", "content": "你是专业的小说元数据提取助手。请根据文件名提取信息，并生成合理的简介和标签。只返回JSON格式数据。"},
-        {"role": "user", "content": prompt}
-    ])
-    
-    if not response.success:
-        return {"success": False, "error": response.error}
-    
-    try:
-        import json
-        content = response.content.strip()
-        if content.startswith('```'):
-            content = content.split('```')[1]
-            if content.startswith('json'):
-                content = content[4:]
-        
-        result = json.loads(content)
-        
-        # 将结果与书籍ID关联
-        changes = []
-        for book_info in result.get("books", []):
-            idx = book_info.get("index", 0) - 1
-            if 0 <= idx < len(sampled_versions):
-                version = sampled_versions[idx]
-                book = version.book
                 
-                changes.append({
-                    "book_id": book.id,
-                    "filename": version.file_name,
-                    "current": {
-                        "title": book.title,
-                        "author": book.author.name if book.author else None,
-                        "description": book.description
-                    },
-                    "extracted": {
-                        "title": book_info.get("title"),
-                        "author": book_info.get("author"),
-                        "description": book_info.get("description"),
-                        "tags": book_info.get("tags", [])
-                    }
+                # 解析 JSON
+                try:
+                    # 尝试找到 JSON 部分
+                    start = response.find('{')
+                    end = response.rfind('}') + 1
+                    if start >= 0 and end > start:
+                        json_str = response[start:end]
+                        data = json.loads(json_str)
+                        
+                        results.append({
+                            "original": filename,
+                            "title": data.get("title", filename),
+                            "author": data.get("author"),
+                            "extra": data.get("extra"),
+                            "tags": data.get("tags", []),
+                            "confidence": 0.8
+                        })
+                    else:
+                        raise ValueError("无法解析 AI 响应")
+                except Exception as e:
+                    log.error(f"解析 AI 响应失败: {e}, 响应: {response}")
+                    results.append({
+                        "original": filename,
+                        "title": filename,
+                        "confidence": 0.0,
+                        "error": str(e)
+                    })
+                    
+            except Exception as e:
+                log.error(f"分析文件名失败: {filename}, 错误: {e}")
+                results.append({
+                    "original": filename,
+                    "title": filename,
+                    "confidence": 0.0,
+                    "error": str(e)
                 })
-        
-        return {
-            "success": True,
-            "library_id": library_id,
-            "library_name": library.name,
-            "total_books": len(versions),
-            "sampled_count": len(sampled_versions),
-            "changes": changes
-        }
+            
+            # 更新进度
+            task["processed"] = i + 1
+            task["progress"] = ((i + 1) / total) * 100
+            task["results"] = results  # 实时更新结果
+            
+            # 稍微延时，避免速率限制
+            await asyncio.sleep(0.1)
+            
+        task["status"] = "completed"
+        task["completed_at"] = datetime.now()
         
     except Exception as e:
-        return {"success": False, "error": f"解析响应失败: {str(e)}", "raw": response.content}
+        log.error(f"批量分析任务失败: {task_id}, 错误: {e}")
+        task["status"] = "failed"
+        task["error"] = str(e)
+        task["completed_at"] = datetime.now()
 
+# ===== 路由处理 =====
 
-@router.post("/libraries/{library_id}/ai-extract/apply")
-async def apply_ai_extract(
-    library_id: int,
-    changes: List[dict],
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
+@router.post("/analyze/filenames/batch", response_model=TaskResponse)
+async def analyze_filenames_batch(
+    request: FilenameAnalysisRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_admin)
 ):
-    """应用AI提取的结果"""
-    from app.models import Tag, BookTag
+    """
+    提交批量分析任务（后台运行）
+    """
+    if not ai_service.is_enabled():
+        raise HTTPException(status_code=400, detail="AI 服务未启用")
+        
+    # 限制批量大小（虽然是后台任务，但也要防止过大）
+    if len(request.filenames) > 500:
+        raise HTTPException(status_code=400, detail="单次请求最多支持 500 个文件名")
     
-    applied_count = 0
-    tags_added = 0
+    task_id = str(uuid.uuid4())
     
-    for change in changes:
-        book_id = change.get("book_id")
-        extracted = change.get("extracted", {})
-        
-        book_result = await db.execute(select(Book).where(Book.id == book_id))
-        book = book_result.scalar_one_or_none()
-        if not book:
-            continue
-        
-        # 更新书名
-        if extracted.get("title"):
-            book.title = extracted["title"].strip()
-        
-        # 更新作者
-        if extracted.get("author"):
-            author_name = extracted["author"].strip()
-            author_result = await db.execute(select(Author).where(Author.name == author_name))
-            author = author_result.scalar_one_or_none()
-            if not author:
-                author = Author(name=author_name)
-                db.add(author)
-                await db.flush()
-            book.author_id = author.id
-        
-        # 更新简介
-        if extracted.get("description"):
-            book.description = extracted["description"].strip()
-        
-        # 添加标签
-        for tag_name in extracted.get("tags", []):
-            tag_result = await db.execute(select(Tag).where(Tag.name == tag_name))
-            tag = tag_result.scalar_one_or_none()
-            if tag:
-                # 检查是否已有此标签
-                existing = await db.execute(
-                    select(BookTag).where(BookTag.book_id == book_id, BookTag.tag_id == tag.id)
-                )
-                if not existing.scalar_one_or_none():
-                    db.add(BookTag(book_id=book_id, tag_id=tag.id))
-                    tags_added += 1
-        
-        applied_count += 1
+    analysis_tasks[task_id] = {
+        "id": task_id,
+        "status": "pending",
+        "filenames": request.filenames,
+        "total": len(request.filenames),
+        "processed": 0,
+        "progress": 0.0,
+        "results": [],
+        "created_at": datetime.now(),
+        "provider": request.provider,
+        "model": request.model
+    }
     
-    await db.commit()
+    # 启动后台任务
+    background_tasks.add_task(
+        process_batch_analysis,
+        task_id,
+        request.filenames,
+        request.provider,
+        request.model
+    )
     
     return {
-        "success": True,
-        "applied_count": applied_count,
-        "tags_added": tags_added
+        "task_id": task_id,
+        "status": "pending",
+        "message": "任务已提交"
     }
 
+@router.get("/analyze/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_task_status(
+    task_id: str,
+    current_user: User = Depends(get_current_admin)
+):
+    """获取任务状态"""
+    task = analysis_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+        
+    return {
+        "task_id": task["id"],
+        "status": task["status"],
+        "progress": task["progress"],
+        "processed": task["processed"],
+        "total": task["total"],
+        "results": task["results"],
+        "created_at": task["created_at"],
+        "completed_at": task.get("completed_at"),
+        "error": task.get("error")
+    }
 
-# 辅助函数：去除文件扩展名
-def _remove_file_extension(text: str) -> str:
-    """去除字符串中的常见文件扩展名"""
-    if not text:
-        return text
-    # 常见扩展名列表
-    extensions = ['.txt', '.epub', '.mobi', '.azw3', '.azw', '.pdf', '.TXT', '.EPUB', '.MOBI']
-    result = text.strip()
-    for ext in extensions:
-        if result.endswith(ext):
-            result = result[:-len(ext)]
-            break
-    return result.strip()
+@router.get("/analyze/tasks", response_model=List[TaskStatusResponse])
+async def list_tasks(
+    status: Optional[str] = None,
+    limit: int = 10,
+    current_user: User = Depends(get_current_admin)
+):
+    """获取任务列表"""
+    tasks = list(analysis_tasks.values())
+    
+    # 排序：最新的在前
+    tasks.sort(key=lambda x: x["created_at"], reverse=True)
+    
+    if status:
+        tasks = [t for t in tasks if t["status"] == status]
+        
+    # 分页
+    tasks = tasks[:limit]
+    
+    # 构建响应（不返回详细结果以减少流量）
+    response = []
+    for task in tasks:
+        response.append({
+            "task_id": task["id"],
+            "status": task["status"],
+            "progress": task["progress"],
+            "processed": task["processed"],
+            "total": task["total"],
+            "results": None, # 列表页不返回详细结果
+            "created_at": task["created_at"],
+            "completed_at": task.get("completed_at"),
+            "error": task.get("error")
+        })
+        
+    return response
 
+@router.delete("/analyze/tasks/{task_id}")
+async def delete_task(
+    task_id: str,
+    current_user: User = Depends(get_current_admin)
+):
+    """删除任务记录"""
+    if task_id in analysis_tasks:
+        del analysis_tasks[task_id]
+        return {"status": "success"}
+    raise HTTPException(status_code=404, detail="任务不存在")
 
-@router.post("/libraries/{library_id}/pattern-extract")
-async def pattern_extract_library(
-    library_id: int,
-    preview_limit: int = 50,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
+# 保留旧的同步接口以兼容
+@router.post("/analyze/filenames", response_model=BatchAnalysisResponse)
+async def analyze_filenames(
+    request: FilenameAnalysisRequest,
+    current_user: User = Depends(get_current_admin)
 ):
     """
-    使用现有规则提取书库元数据（预览模式，不自动应用）
-    
-    按规则优先级依次匹配每本书的文件名
-    
-    - preview_limit: 预览数量限制（默认50条），避免大量数据导致前端崩溃
+    使用 AI 批量分析文件名（同步接口，建议使用 batch 接口）
     """
-    from sqlalchemy import or_
-    from sqlalchemy.orm import selectinload
+    if not ai_service.is_enabled():
+        raise HTTPException(status_code=400, detail="AI 服务未启用")
+        
+    results = []
+    success_count = 0
+    failed_count = 0
     
-    lib_result = await db.execute(select(Library).where(Library.id == library_id))
-    library = lib_result.scalar_one_or_none()
-    if not library:
-        raise HTTPException(404, "书库不存在")
+    # 限制批量大小
+    if len(request.filenames) > 20:
+        raise HTTPException(status_code=400, detail="单次请求最多支持 20 个文件名，请分批处理")
     
-    # 获取规则
-    patterns_result = await db.execute(
-        select(FilenamePattern).where(
-            FilenamePattern.is_active == True,
-            or_(FilenamePattern.library_id == library_id, FilenamePattern.library_id == None)
-        ).order_by(FilenamePattern.priority.desc())
-    )
-    patterns = patterns_result.scalars().all()
-    
-    if not patterns:
-        return {"success": False, "error": "没有可用规则，请先在'文件名规则'中添加规则"}
-    
-    # 编译正则
-    compiled_patterns = []
-    for p in patterns:
+    for filename in request.filenames:
         try:
-            compiled_patterns.append({
-                "pattern": p,
-                "compiled": re.compile(p.regex_pattern)
-            })
-        except:
-            pass
-    
-    # 获取所有书籍
-    versions_result = await db.execute(
-        select(BookVersion).options(
-            selectinload(BookVersion.book).selectinload(Book.author)
-        ).join(Book).where(Book.library_id == library_id)
-    )
-    versions = versions_result.scalars().all()
-    
-    if not versions:
-        return {"success": False, "error": "书库中没有书籍"}
-    
-    changes = []
-    matched_count = 0
-    
-    for version in versions:
-        filename = version.file_name
-        book = version.book
-        
-        for cp in compiled_patterns:
-            match = cp["compiled"].match(filename)
-            if match:
-                groups = match.groups()
-                p = cp["pattern"]
+            # 调用 AI 分析
+            prompt = f"""
+            请分析以下小说文件名，提取书名、作者和额外信息。
+            文件名：{filename}
+            
+            请返回 JSON 格式：
+            {{
+                "title": "书名",
+                "author": "作者(如果没有则为null)",
+                "extra": "额外信息(如卷数、状态等，没有则为null)",
+                "tags": ["标签1", "标签2"]
+            }}
+            只返回 JSON，不要其他内容。
+            """
+            
+            response = await ai_service.generate_completion(
+                prompt=prompt,
+                provider=request.provider,
+                model=request.model
+            )
+            
+            # 解析 JSON
+            try:
+                # 尝试找到 JSON 部分
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                if start >= 0 and end > start:
+                    json_str = response[start:end]
+                    data = json.loads(json_str)
+                    
+                    results.append(FilenameAnalysisResult(
+                        original=filename,
+                        title=data.get("title", filename),
+                        author=data.get("author"),
+                        extra=data.get("extra"),
+                        tags=data.get("tags", []),
+                        confidence=0.8  # 模拟置信度
+                    ))
+                    success_count += 1
+                else:
+                    raise ValueError("无法解析 AI 响应")
+            except Exception as e:
+                log.error(f"解析 AI 响应失败: {e}, 响应: {response}")
+                failed_count += 1
+                results.append(FilenameAnalysisResult(
+                    original=filename,
+                    title=filename,
+                    confidence=0.0
+                ))
                 
-                extracted_title = groups[p.title_group - 1] if p.title_group > 0 and p.title_group <= len(groups) else None
-                extracted_author = groups[p.author_group - 1] if p.author_group > 0 and p.author_group <= len(groups) else None
-                
-                # 自动去除文件扩展名
-                if extracted_title:
-                    extracted_title = _remove_file_extension(extracted_title)
-                if extracted_author:
-                    extracted_author = _remove_file_extension(extracted_author)
-                
-                if extracted_title:
-                    matched_count += 1
-                    # 只保留预览数量的详情
-                    if len(changes) < preview_limit:
-                        changes.append({
-                            "book_id": book.id,
-                            "filename": filename,
-                            "pattern_name": p.name,
-                            "current": {
-                                "title": book.title,
-                                "author": book.author.name if book.author else None
-                            },
-                            "extracted": {
-                                "title": extracted_title.strip() if extracted_title else None,
-                                "author": extracted_author.strip() if extracted_author else None
-                            }
-                        })
-                
-                break
-    
+        except Exception as e:
+            log.error(f"分析文件名失败: {filename}, 错误: {e}")
+            failed_count += 1
+            results.append(FilenameAnalysisResult(
+                original=filename,
+                title=filename,
+                confidence=0.0
+            ))
+            
     return {
-        "success": True,
-        "library_id": library_id,
-        "library_name": library.name,
-        "total_books": len(versions),
-        "matched_count": matched_count,
-        "patterns_used": len(compiled_patterns),
-        "changes": changes,
-        "preview_truncated": matched_count > preview_limit
+        "results": results,
+        "total": len(request.filenames),
+        "success": success_count,
+        "failed": failed_count
     }
 
-
-@router.post("/libraries/{library_id}/pattern-extract/apply")
-async def apply_pattern_extract(
-    library_id: int,
-    changes: List[dict],
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
+@router.get("/config")
+async def get_ai_config(
+    current_user: User = Depends(get_current_admin)
 ):
-    """应用规则提取的结果（仅预览的数据）"""
-    applied_count = 0
-    
-    for change in changes:
-        book_id = change.get("book_id")
-        extracted = change.get("extracted", {})
-        
-        book_result = await db.execute(select(Book).where(Book.id == book_id))
-        book = book_result.scalar_one_or_none()
-        if not book:
-            continue
-        
-        # 更新书名
-        if extracted.get("title"):
-            book.title = extracted["title"].strip()
-        
-        # 更新作者
-        if extracted.get("author"):
-            author_name = extracted["author"].strip()
-            author_result = await db.execute(select(Author).where(Author.name == author_name))
-            author = author_result.scalar_one_or_none()
-            if not author:
-                author = Author(name=author_name)
-                db.add(author)
-                await db.flush()
-            book.author_id = author.id
-        
-        applied_count += 1
-    
-    await db.commit()
-    
+    """获取 AI 配置"""
     return {
-        "success": True,
-        "applied_count": applied_count
+        "enabled": ai_service.is_enabled(),
+        "providers": ai_service.get_available_providers(),
+        "default_provider": ai_service.default_provider,
+        "models": ai_service.get_available_models()
     }
-
-
-@router.post("/libraries/{library_id}/pattern-extract/apply-all")
-async def apply_all_pattern_extract(
-    library_id: int,
-    batch_size: int = 100,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """
-    批量应用规则到所有匹配的书籍（后台处理）
-    
-    不需要预览，直接扫描并应用。分批提交以避免超时。
-    
-    - batch_size: 每批处理数量（默认100），每批提交一次事务
-    """
-    from sqlalchemy import or_
-    from sqlalchemy.orm import selectinload
-    from app.utils.logger import log
-    
-    lib_result = await db.execute(select(Library).where(Library.id == library_id))
-    library = lib_result.scalar_one_or_none()
-    if not library:
-        raise HTTPException(404, "书库不存在")
-    
-    # 获取规则
-    patterns_result = await db.execute(
-        select(FilenamePattern).where(
-            FilenamePattern.is_active == True,
-            or_(FilenamePattern.library_id == library_id, FilenamePattern.library_id == None)
-        ).order_by(FilenamePattern.priority.desc())
-    )
-    patterns = patterns_result.scalars().all()
-    
-    if not patterns:
-        return {"success": False, "error": "没有可用规则，请先在'文件名规则'中添加规则"}
-    
-    # 编译正则
-    compiled_patterns = []
-    for p in patterns:
-        try:
-            compiled_patterns.append({
-                "pattern": p,
-                "compiled": re.compile(p.regex_pattern)
-            })
-        except:
-            pass
-    
-    # 获取所有书籍版本
-    versions_result = await db.execute(
-        select(BookVersion).options(
-            selectinload(BookVersion.book).selectinload(Book.author)
-        ).join(Book).where(Book.library_id == library_id)
-    )
-    versions = versions_result.scalars().all()
-    
-    if not versions:
-        return {"success": False, "error": "书库中没有书籍"}
-    
-    log.info(f"开始批量应用规则到书库 {library.name}，共 {len(versions)} 本书")
-    
-    matched_count = 0
-    applied_count = 0
-    author_cache = {}  # 作者缓存
-    batch_count = 0
-    
-    for version in versions:
-        filename = version.file_name
-        book = version.book
-        
-        for cp in compiled_patterns:
-            match = cp["compiled"].match(filename)
-            if match:
-                groups = match.groups()
-                p = cp["pattern"]
-                
-                extracted_title = groups[p.title_group - 1] if p.title_group > 0 and p.title_group <= len(groups) else None
-                extracted_author = groups[p.author_group - 1] if p.author_group > 0 and p.author_group <= len(groups) else None
-                
-                # 自动去除文件扩展名
-                if extracted_title:
-                    extracted_title = _remove_file_extension(extracted_title)
-                if extracted_author:
-                    extracted_author = _remove_file_extension(extracted_author)
-                
-                if extracted_title:
-                    matched_count += 1
-                    
-                    # 更新书名
-                    book.title = extracted_title.strip()
-                    
-                    # 更新作者
-                    if extracted_author:
-                        author_name = extracted_author.strip()
-                        
-                        # 使用缓存
-                        if author_name in author_cache:
-                            book.author_id = author_cache[author_name]
-                        else:
-                            author_result = await db.execute(select(Author).where(Author.name == author_name))
-                            author = author_result.scalar_one_or_none()
-                            if not author:
-                                author = Author(name=author_name)
-                                db.add(author)
-                                await db.flush()
-                            author_cache[author_name] = author.id
-                            book.author_id = author.id
-                    
-                    # 更新规则统计
-                    p.match_count = (p.match_count or 0) + 1
-                    p.success_count = (p.success_count or 0) + 1
-                    
-                    applied_count += 1
-                    batch_count += 1
-                    
-                    # 分批提交
-                    if batch_count >= batch_size:
-                        await db.commit()
-                        log.debug(f"已处理 {applied_count} 本书")
-                        batch_count = 0
-                
-                break
-    
-    # 提交剩余的
-    if batch_count > 0:
-        await db.commit()
-    
-    log.info(f"批量应用完成: 匹配 {matched_count}, 应用 {applied_count}")
-    
-    return {
-        "success": True,
-        "library_id": library_id,
-        "library_name": library.name,
-        "total_books": len(versions),
-        "matched_count": matched_count,
-        "applied_count": applied_count,
-        "patterns_used": len(compiled_patterns)
-    }
-
-
-@router.post("/patterns/batch-apply")
-async def batch_apply_patterns(
-    library_id: int,
-    dry_run: bool = True,
-    db: AsyncSession = Depends(get_db),
-    admin = Depends(admin_required)
-):
-    """批量应用规则到书库（重新解析文件名）"""
-    from sqlalchemy import or_
-    from sqlalchemy.orm import selectinload
-    
-    lib_result = await db.execute(select(Library).where(Library.id == library_id))
-    library = lib_result.scalar_one_or_none()
-    if not library:
-        raise HTTPException(404, "书库不存在")
-    
-    # 获取规则
-    patterns_result = await db.execute(
-        select(FilenamePattern).where(
-            FilenamePattern.is_active == True,
-            or_(FilenamePattern.library_id == library_id, FilenamePattern.library_id == None)
-        ).order_by(FilenamePattern.priority.desc())
-    )
-    patterns = patterns_result.scalars().all()
-    
-    if not patterns:
-        return {"success": False, "error": "没有可用规则"}
-    
-    # 编译正则
-    compiled_patterns = []
-    for p in patterns:
-        try:
-            compiled_patterns.append({
-                "pattern": p,
-                "compiled": re.compile(p.regex_pattern)
-            })
-        except:
-            pass
-    
-    # 获取所有书籍版本
-    versions_result = await db.execute(
-        select(BookVersion).options(
-            selectinload(BookVersion.book).selectinload(Book.author)
-        ).join(Book).where(Book.library_id == library_id)
-    )
-    versions = versions_result.scalars().all()
-    
-    results = {
-        "total": len(versions),
-        "matched": 0,
-        "updated": 0,
-        "details": []
-    }
-    
-    for version in versions:
-        filename = version.file_name
-        
-        for cp in compiled_patterns:
-            match = cp["compiled"].match(filename)
-            if match:
-                groups = match.groups()
-                p = cp["pattern"]
-                
-                parsed = {
-                    "title": groups[p.title_group - 1] if p.title_group > 0 and p.title_group <= len(groups) else None,
-                    "author": groups[p.author_group - 1] if p.author_group > 0 and p.author_group <= len(groups) else None,
-                }
-                
-                detail = {
-                    "filename": filename,
-                    "pattern_name": p.name,
-                    "parsed": parsed,
-                    "current_title": version.book.title,
-                    "current_author": version.book.author.name if version.book.author else None
-                }
-                
-                results["matched"] += 1
-                results["details"].append(detail)
-                
-                # 更新书籍（非dry_run模式）
-                if not dry_run and parsed["title"]:
-                    version.book.title = parsed["title"].strip()
-                    results["updated"] += 1
-                    
-                    # 更新规则匹配统计
-                    p.match_count = (p.match_count or 0) + 1
-                    p.success_count = (p.success_count or 0) + 1
-                
-                break
-    
-    if not dry_run:
-        await db.commit()
-    
-    # 限制返回详情数量
-    if len(results["details"]) > 50:
-        results["details"] = results["details"][:50]
-        results["details_truncated"] = True
-    
-    return results

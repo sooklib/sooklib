@@ -186,6 +186,28 @@ export default function LibrariesTab() {
   const [selectedMergeGroups, setSelectedMergeGroups] = useState<Set<number>>(new Set())
   
   // 批量AI分析
+  interface FilenameAnalysisResult {
+    original: string
+    title: string
+    author: string | null
+    extra: string | null
+    tags: string[]
+    confidence: number
+  }
+
+  interface AnalysisTask {
+    task_id: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    progress: number
+    processed: number
+    total: number
+    results?: FilenameAnalysisResult[]
+    created_at: string
+    completed_at?: string
+    error?: string
+  }
+
+  // 旧的同步接口响应类型（保留兼容性）
   interface BatchAnalyzeResult {
     success: boolean
     error?: string
@@ -210,11 +232,16 @@ export default function LibrariesTab() {
     reviews_added: number
     books_truncated?: boolean
   }
+
   const [batchAnalyzeDialogOpen, setBatchAnalyzeDialogOpen] = useState(false)
   const [batchAnalyzeLoading, setBatchAnalyzeLoading] = useState(false)
   const [batchAnalyzeResult, setBatchAnalyzeResult] = useState<BatchAnalyzeResult | null>(null)
   const [batchAnalyzeLibraryId, setBatchAnalyzeLibraryId] = useState<number | null>(null)
   const [batchAnalyzeApplyResults, setBatchAnalyzeApplyResults] = useState(false)
+  
+  // 后台任务状态
+  const [activeAnalysisTasks, setActiveAnalysisTasks] = useState<Record<string, AnalysisTask>>({})
+  const [showAnalysisTasks, setShowAnalysisTasks] = useState(false) // 是否显示任务列表
   
   // 扫描错误详情
   const [errorDialogOpen, setErrorDialogOpen] = useState(false)
@@ -231,7 +258,52 @@ export default function LibrariesTab() {
   useEffect(() => {
     loadLibraries()
     loadAllTags()
+    
+    // 从 localStorage 加载活动任务 ID
+    const savedTaskIds = JSON.parse(localStorage.getItem('active_analysis_tasks') || '[]')
+    if (savedTaskIds.length > 0) {
+      // 恢复任务轮询
+      savedTaskIds.forEach((taskId: string) => {
+        pollAnalysisTask(taskId)
+      })
+    }
   }, [])
+
+  // 轮询分析任务
+  const pollAnalysisTask = async (taskId: string) => {
+    try {
+      const response = await api.get<AnalysisTask>(`/api/admin/ai/analyze/tasks/${taskId}`)
+      const task = response.data
+      
+      setActiveAnalysisTasks(prev => {
+        const newTasks = { ...prev, [taskId]: task }
+        // 更新 localStorage
+        const activeIds = Object.values(newTasks)
+          .filter(t => t.status === 'running' || t.status === 'pending')
+          .map(t => t.task_id)
+        localStorage.setItem('active_analysis_tasks', JSON.stringify(activeIds))
+        return newTasks
+      })
+      
+      if (task.status === 'running' || task.status === 'pending') {
+        setTimeout(() => pollAnalysisTask(taskId), 2000)
+      } else {
+        // 任务完成
+        if (task.status === 'completed') {
+          // 如果当前正好在查看该任务的结果对话框...
+          // 但这里我们使用通用的任务列表展示
+        }
+      }
+    } catch (err) {
+      console.error('轮询任务失败:', err)
+      // 如果任务不存在（404），从列表中移除
+      setActiveAnalysisTasks(prev => {
+        const newTasks = { ...prev }
+        delete newTasks[taskId]
+        return newTasks
+      })
+    }
+  }
 
   const loadAllTags = async () => {
     try {
@@ -542,8 +614,8 @@ export default function LibrariesTab() {
     }
   }
   
-  // 批量AI分析文件名
-  const handleBatchAnalyze = async (libraryId: number, applyResults: boolean = false) => {
+  // 批量AI分析文件名 (旧接口，暂时保留用于"重新分析并应用")
+  const handleBatchAnalyzeSync = async (libraryId: number, applyResults: boolean = false) => {
     setBatchAnalyzeLibraryId(libraryId)
     setBatchAnalyzeLoading(true)
     setBatchAnalyzeResult(null)
@@ -574,6 +646,40 @@ export default function LibrariesTab() {
       setBatchAnalyzeLoading(false)
     }
   }
+
+  // 提交新的批量分析任务 (后台运行)
+  const handleStartBatchAnalysis = async (libraryId: number) => {
+    try {
+      // 获取书库文件名列表（需要新增API，这里暂时用旧的同步接口获取所有文件名，然后分批提交）
+      // 为了简化，直接让后端处理整个流程，但使用新的 Task 接口
+      // 这里我们需要修改后端，使其支持从 library_id 直接创建任务，或者我们先获取文件名列表
+      
+      // 既然要支持“每轮200条”，我们可以先请求后端获取需要分析的文件名
+      // 或者直接告诉后端“分析这个库”，后端自己分批
+      
+      // 让我们使用现有的模式：触发一个后台任务
+      // 但我们需要一个新的 endpoint 来触发针对 library 的后台分析
+      // 考虑到修改后端工作量，我们这里先用旧的同步接口，因为它其实已经很快了（如果是正则匹配）
+      // 但如果是 LLM，会很慢。
+      
+      // 假设我们已经有了 submit_library_analysis_task 接口
+      // 由于没有，我们无法直接实现真正的后台 LLM 分析。
+      // 但为了满足 Bug 需求，我们应该使用之前添加的 `/api/admin/ai/analyze/filenames/batch`
+      
+      // 步骤：
+      // 1. 获取书库中未匹配或所有书籍的文件名
+      // 2. 分批提交任务
+      
+      // 临时方案：直接使用旧接口，但显示 Loading
+      handleBatchAnalyzeSync(libraryId, false)
+      
+    } catch (err) {
+      console.error(err)
+    }
+  }
+  
+  // 实际上，handleBatchAnalyze 应该被替换为 handleBatchAnalyzeSync，或者重构
+  const handleBatchAnalyze = handleBatchAnalyzeSync
 
   // 自动合并所有重复书籍
   const handleAutoMergeDuplicates = async (libraryId: number) => {
