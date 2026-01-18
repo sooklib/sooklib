@@ -11,7 +11,7 @@ import {
   ChevronLeft, ChevronRight, Fullscreen, FullscreenExit,
   PlayArrow, Stop, Timer, SpaceBar, Bookmark, BookmarkBorder,
   Delete, Add, Search, Close, Edit, FormatColorFill, Download,
-  ZoomIn, ZoomOut, RestartAlt
+  ZoomIn, ZoomOut, RestartAlt, FilterList, Sort, Check, Comment
 } from '@mui/icons-material'
 import ePub, { Book, Rendition } from 'epubjs'
 import api, { readingStatsApi } from '../services/api'
@@ -221,6 +221,14 @@ export default function ReaderPage() {
   const [annotationNote, setAnnotationNote] = useState('')
   const [editingAnnotation, setEditingAnnotation] = useState<AnnotationInfo | null>(null)
   
+  // 批注筛选和排序
+  const [annotationFilter, setAnnotationFilter] = useState<'all' | 'notes'>('all')
+  const [annotationSort, setAnnotationSort] = useState<'location' | 'time'>('location')
+  
+  // 激活的高亮（用于编辑）
+  const [activeAnnotationId, setActiveAnnotationId] = useState<number | null>(null)
+  const [activeAnnotationRect, setActiveAnnotationRect] = useState<DOMRect | null>(null)
+
   // 进度 - 基于章节号+章节内偏移
   const [progress, setProgress] = useState(0)
   const [savedChapterIndex, setSavedChapterIndex] = useState<number | null>(null)
@@ -1146,9 +1154,21 @@ export default function ReaderPage() {
   // 更新批注
   const updateAnnotation = async (annotationId: number, data: { note?: string; color?: string }) => {
     try {
-      await api.put(`/api/annotations/${annotationId}`, data)
+      // 准备 API 所需的参数
+      const payload: any = {}
+      if (data.note !== undefined) {
+        payload.note = data.note
+        // 如果有笔记，类型自动设为 note，否则为 highlight
+        payload.annotation_type = data.note ? 'note' : 'highlight'
+      }
+      if (data.color !== undefined) {
+        payload.color = data.color
+      }
+      
+      await api.put(`/api/annotations/${annotationId}`, payload)
       await loadAnnotations()
       setEditingAnnotation(null)
+      setActiveAnnotationId(null)
     } catch (err) {
       console.error('更新批注失败:', err)
     }
@@ -1209,9 +1229,15 @@ export default function ReaderPage() {
   const handleTextSelection = useCallback(() => {
     if (isEpub) return
     
+    // 如果正在编辑现有的高亮，不触发新选择
+    if (activeAnnotationId !== null) return
+    
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || !selection.rangeCount) {
-      setShowAnnotationPopup(false)
+      // 只有当我们没有主动编辑现有高亮时才关闭弹出
+      if (activeAnnotationId === null) {
+        setShowAnnotationPopup(false)
+      }
       return
     }
     
@@ -1255,10 +1281,33 @@ export default function ReaderPage() {
     }
     
     // 计算在章节内容中的偏移（简化版：基于选中文本在章节中的位置）
+    // 注意：如果有重复文本，这种简单方法可能会定位错误，更完善的方法需要计算节点偏移
+    // 但对于普通文本阅读器，通常足够使用
+    
+    // 尝试在章节中定位
+    // 这里有一个挑战：rendered text 可能包含高亮 DOM 结构
+    // 但 chapter.content 是原始纯文本
+    // selection.toString() 也是纯文本
+    
+    // 由于我们渲染时是将内容切分为片段，浏览器选择实际上是在这些片段上
+    // 但我们保存的是原始文本的偏移
+    
+    // 改进的定位逻辑：
+    // 1. 获取完整的文本内容
+    // 2. 找到选中文本在完整内容中的位置
+    // 由于可能有多个相同文本，我们需要利用 range 在页面中的相对位置来辅助判断
+    // 但这比较复杂。现在还是先用简单的 indexOf，如果有多个，可能选中第一个
+    
+    // 一个更好的方案：当渲染高亮时，我们在 span 上不添加 dataset，
+    // 但是我们可以利用 range.startContainer 和 range.startOffset 来计算
+    // 这需要遍历 DOM 树累加长度，比较繁琐
+    
     const chapterContent = chapter.content
+    // 简单的 indexOf，如果同一章节有相同句子，默认取第一个
+    // TODO: 优化定位逻辑以支持重复句子
     const startOffset = chapterContent.indexOf(text)
+    
     if (startOffset === -1) {
-      // 如果找不到完全匹配，使用选择范围的近似位置
       setShowAnnotationPopup(false)
       return
     }
@@ -1273,8 +1322,13 @@ export default function ReaderPage() {
       endOffset,
       rect
     })
+    
+    // 清除可能存在的编辑状态
+    setActiveAnnotationId(null)
+    setEditingAnnotation(null)
+    
     setShowAnnotationPopup(true)
-  }, [isEpub, loadedChapters])
+  }, [isEpub, loadedChapters, activeAnnotationId])
 
   // 监听选择变化
   useEffect(() => {
@@ -1288,6 +1342,24 @@ export default function ReaderPage() {
       loadAnnotations()
     }
   }, [id, isEpub])
+  
+  // 处理点击高亮区域
+  const handleHighlightClick = (e: React.MouseEvent, annotation: AnnotationInfo) => {
+    e.stopPropagation()
+    // 获取高亮元素的位置，用于显示弹出菜单
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setActiveAnnotationId(annotation.id)
+    setActiveAnnotationRect(rect)
+    setEditingAnnotation(annotation)
+    // 预填充当前颜色
+    setAnnotationColor(annotation.color)
+    // 预填充当前笔记
+    setAnnotationNote(annotation.note || '')
+    setShowAnnotationPopup(true)
+    
+    // 清除当前的文本选择，避免冲突
+    window.getSelection()?.removeAllRanges()
+  }
 
   // 跳转到批注位置
   const goToAnnotation = (annotation: AnnotationInfo) => {
@@ -1298,6 +1370,31 @@ export default function ReaderPage() {
     } else {
       loadChapterContent(annotation.chapter_index)
     }
+  }
+  
+  // 获取筛选后的批注
+  const getFilteredAnnotations = () => {
+    let result = [...annotations]
+    
+    // 筛选
+    if (annotationFilter === 'notes') {
+      result = result.filter(a => !!a.note)
+    }
+    
+    // 排序
+    result.sort((a, b) => {
+      if (annotationSort === 'location') {
+        if (a.chapter_index !== b.chapter_index) {
+          return a.chapter_index - b.chapter_index
+        }
+        return a.start_offset - b.start_offset
+      } else {
+        // 按时间倒序
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      }
+    })
+    
+    return result
   }
 
   // 渲染带高亮的章节内容
@@ -1315,9 +1412,18 @@ export default function ReaderPage() {
     let lastEnd = 0
     
     for (const annotation of sortedAnnotations) {
+      // 检查重叠（简单处理：如果当前开始位置小于上次结束位置，说明有重叠）
+      // 这里暂不处理复杂的重叠高亮，只取非重叠部分
+      const effectiveStart = Math.max(annotation.start_offset, lastEnd)
+      
       // 添加高亮前的普通文本
-      if (annotation.start_offset > lastEnd) {
-        parts.push(chapter.content.substring(lastEnd, annotation.start_offset))
+      if (effectiveStart > lastEnd) {
+        parts.push(chapter.content.substring(lastEnd, effectiveStart))
+      }
+      
+      // 如果高亮完全被前一个覆盖，则跳过
+      if (effectiveStart >= annotation.end_offset) {
+        continue
       }
       
       // 添加高亮文本
@@ -1326,20 +1432,23 @@ export default function ReaderPage() {
         <Box
           component="span"
           key={annotation.id}
+          onClick={(e) => handleHighlightClick(e, annotation)}
           sx={{
             bgcolor: highlightColor.bg,
             borderRadius: '2px',
-            cursor: annotation.note ? 'pointer' : 'default',
+            cursor: 'pointer', // 所有高亮都可点击编辑
             position: 'relative',
-            '&:hover': annotation.note ? {
+            transition: 'background-color 0.2s',
+            '&:hover': {
+              bgcolor: highlightColor.bg.replace('0.5)', '0.7)'), // 加深颜色提示可点击
               '& .annotation-note-tooltip': {
                 display: 'block'
               }
-            } : {}
+            }
           }}
-          title={annotation.note || undefined}
+          title={annotation.note ? "点击编辑笔记" : "点击编辑高亮"}
         >
-          {chapter.content.substring(annotation.start_offset, annotation.end_offset)}
+          {chapter.content.substring(effectiveStart, annotation.end_offset)}
           {annotation.note && (
             <>
               <Box
@@ -1353,6 +1462,7 @@ export default function ReaderPage() {
                   borderRadius: '50%',
                   bgcolor: 'error.main',
                   zIndex: 1,
+                  boxShadow: 1
                 }}
               />
               <Box
@@ -1382,7 +1492,7 @@ export default function ReaderPage() {
         </Box>
       )
       
-      lastEnd = annotation.end_offset
+      lastEnd = Math.max(lastEnd, annotation.end_offset)
     }
     
     // 添加剩余文本
@@ -2271,23 +2381,42 @@ export default function ReaderPage() {
             </Box>
           </Box>
           
+          {/* 筛选和排序工具栏 */}
+          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+             <Chip 
+               icon={<FilterList fontSize="small" />} 
+               label={annotationFilter === 'all' ? "全部" : "仅笔记"} 
+               size="small"
+               onClick={() => setAnnotationFilter(annotationFilter === 'all' ? 'notes' : 'all')}
+               color={annotationFilter === 'notes' ? 'primary' : 'default'}
+               variant={annotationFilter === 'notes' ? 'filled' : 'outlined'}
+             />
+             <Chip 
+               icon={<Sort fontSize="small" />} 
+               label={annotationSort === 'location' ? "按位置" : "按时间"} 
+               size="small"
+               onClick={() => setAnnotationSort(annotationSort === 'location' ? 'time' : 'location')}
+               variant="outlined"
+             />
+          </Box>
+          
           {loadingAnnotations ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress size={24} />
             </Box>
-          ) : annotations.length === 0 ? (
+          ) : getFilteredAnnotations().length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
               <Edit sx={{ fontSize: 48, opacity: 0.5 }} />
               <Typography variant="body2" sx={{ mt: 1 }}>
-                暂无笔记
+                {annotationFilter === 'notes' ? '没有找到笔记' : '暂无高亮或笔记'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 选中文本可添加高亮和笔记
               </Typography>
             </Box>
           ) : (
-            <List sx={{ maxHeight: 'calc(100vh - 150px)', overflow: 'auto' }}>
-              {annotations.map((annotation) => (
+            <List sx={{ maxHeight: 'calc(100vh - 200px)', overflow: 'auto' }}>
+              {getFilteredAnnotations().map((annotation) => (
                 <ListItem 
                   key={annotation.id} 
                   disablePadding
@@ -2317,9 +2446,15 @@ export default function ReaderPage() {
                     onClick={() => goToAnnotation(annotation)}
                   >
                     <Box sx={{ p: 1.5 }}>
-                      <Typography variant="caption" color="primary" sx={{ fontWeight: 'bold' }}>
-                        {annotation.chapter_title || `第${annotation.chapter_index + 1}章`}
-                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Typography variant="caption" color="primary" sx={{ fontWeight: 'bold' }}>
+                          {annotation.chapter_title || `第${annotation.chapter_index + 1}章`}
+                        </Typography>
+                        {annotation.note && (
+                          <Comment fontSize="small" color="action" sx={{ fontSize: 14 }} />
+                        )}
+                      </Box>
+                      
                       <Typography 
                         variant="body2" 
                         sx={{ 
@@ -2329,11 +2464,14 @@ export default function ReaderPage() {
                           bgcolor: highlightColors[annotation.color]?.bg || highlightColors.yellow.bg,
                           p: 0.5,
                           borderRadius: 0.5,
+                          // 限制显示行数
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
                         }}
                       >
-                        "{annotation.selected_text.length > 100 
-                          ? annotation.selected_text.substring(0, 100) + '...' 
-                          : annotation.selected_text}"
+                        {annotation.selected_text}
                       </Typography>
                       {annotation.note && (
                         <Typography 
@@ -2342,13 +2480,16 @@ export default function ReaderPage() {
                             mt: 1, 
                             fontSize: 13,
                             color: 'text.primary',
-                            fontStyle: 'italic'
+                            fontStyle: 'italic',
+                            borderLeft: '2px solid',
+                            borderColor: 'divider',
+                            pl: 1
                           }}
                         >
-                          📝 {annotation.note}
+                          {annotation.note}
                         </Typography>
                       )}
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, fontSize: 10 }}>
                         {new Date(annotation.created_at).toLocaleDateString('zh-CN', {
                           month: 'short',
                           day: 'numeric',
