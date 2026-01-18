@@ -256,32 +256,59 @@ async def _read_txt_file(file_path: Path) -> Optional[str]:
     """读取TXT文件内容（支持多种编码和自动检测）"""
     import chardet
     
+    log.debug(f"开始读取TXT文件: {file_path}")
+    
+    # 检查文件是否存在
+    if not file_path.exists():
+        log.error(f"文件不存在: {file_path}")
+        return None
+    
     # 1. 尝试常见编码
-    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16']
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1']
     
     for encoding in encodings:
         try:
             with open(file_path, 'r', encoding=encoding) as f:
                 content = f.read()
+            log.debug(f"成功使用编码 {encoding} 读取文件: {file_path.name}")
             return _clean_txt_content(content)
         except UnicodeDecodeError:
             continue
+        except Exception as e:
+            log.warning(f"使用编码 {encoding} 读取文件时出错: {e}")
+            continue
             
     # 2. 使用 chardet 自动检测
+    log.debug(f"常见编码均失败，尝试自动检测: {file_path.name}")
     try:
         with open(file_path, 'rb') as f:
-            raw_data = f.read(10000)  # 读取前10KB进行检测
+            raw_data = f.read(50000)  # 读取前50KB进行检测（增加样本量提高准确性）
             result = chardet.detect(raw_data)
             detected_encoding = result['encoding']
+            confidence = result.get('confidence', 0)
             
-            if detected_encoding and detected_encoding.lower() not in encodings:
-                log.info(f"自动检测到编码: {detected_encoding} for {file_path}")
-                with open(file_path, 'r', encoding=detected_encoding) as f:
-                    content = f.read()
-                return _clean_txt_content(content)
+            log.info(f"自动检测到编码: {detected_encoding} (置信度: {confidence:.2f}) for {file_path.name}")
+            
+            if detected_encoding:
+                try:
+                    with open(file_path, 'r', encoding=detected_encoding, errors='replace') as f:
+                        content = f.read()
+                    return _clean_txt_content(content)
+                except Exception as e:
+                    log.error(f"使用检测到的编码 {detected_encoding} 读取失败: {e}")
     except Exception as e:
         log.error(f"自动检测编码失败: {e}")
     
+    # 3. 最后尝试用 latin-1 强制读取（latin-1 可以读取任何字节）
+    log.warning(f"尝试使用 latin-1 强制读取文件: {file_path.name}")
+    try:
+        with open(file_path, 'r', encoding='latin-1') as f:
+            content = f.read()
+        return _clean_txt_content(content)
+    except Exception as e:
+        log.error(f"latin-1 强制读取也失败: {e}")
+    
+    log.error(f"无法读取文件 (所有编码均失败): {file_path}")
     return None
 
 

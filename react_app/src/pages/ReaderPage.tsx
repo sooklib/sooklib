@@ -144,6 +144,7 @@ export default function ReaderPage() {
   // 状态
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [errorDetail, setErrorDetail] = useState<string | null>(null)  // 详细错误信息
   const [bookInfo, setBookInfo] = useState<{ title: string; format: string } | null>(null)
   const [format, setFormat] = useState<'txt' | 'epub' | 'pdf' | 'comic' | null>(null)
   // 兼容旧代码
@@ -791,7 +792,7 @@ export default function ReaderPage() {
   }, [pendingJump, loadedChapters, loadingChapter, loadedRange])
 
   // 加载章节内容（核心函数）
-  const loadChapterContent = async (chapterIndex: number, buffer: number = 2) => {
+  const loadChapterContent = async (chapterIndex: number, buffer: number = 2, retryCount: number = 0) => {
     if (loadingChapter) return
     
     // 检查是否已加载且目标章节在范围内
@@ -803,6 +804,8 @@ export default function ReaderPage() {
     
     try {
       setLoadingChapter(true)
+      setError('')
+      setErrorDetail(null)
       // 清空旧的章节引用，避免引用混乱
       chapterRefs.current.clear()
       
@@ -813,6 +816,17 @@ export default function ReaderPage() {
       const data = response.data
       
       if (data.format === 'txt') {
+        // 检查章节内容是否为空
+        if (!data.chapters || data.chapters.length === 0) {
+          throw new Error('服务器返回空章节数据')
+        }
+        
+        // 检查是否有有效内容
+        const hasContent = data.chapters.some((ch: LoadedChapter) => ch.content && ch.content.trim().length > 0)
+        if (!hasContent) {
+          throw new Error('章节内容为空，可能是文件编码问题')
+        }
+        
         // 先更新状态
         setLoadedChapters(data.chapters)
         setLoadedRange({
@@ -832,9 +846,46 @@ export default function ReaderPage() {
         // 设置待跳转章节，让 useEffect 在渲染后执行跳转
         setPendingJump(chapterIndex)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('加载章节内容失败:', err)
-      setError('加载章节失败')
+      
+      // 提取详细错误信息
+      let errorMessage = '加载章节失败'
+      let detailMessage = null
+      
+      if (err.response) {
+        // 服务器返回的错误
+        const status = err.response.status
+        const detail = err.response.data?.detail || err.response.data?.message
+        
+        if (status === 500) {
+          errorMessage = '服务器处理文件时出错'
+          detailMessage = detail || '可能是文件编码不支持或文件损坏'
+        } else if (status === 404) {
+          errorMessage = '章节不存在'
+          detailMessage = detail
+        } else if (status === 400) {
+          errorMessage = '请求参数错误'
+          detailMessage = detail
+        } else {
+          errorMessage = `服务器错误 (${status})`
+          detailMessage = detail
+        }
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      // 自动重试（最多3次）
+      if (retryCount < 2 && !err.response?.status?.toString().startsWith('4')) {
+        console.log(`重试加载章节 (${retryCount + 1}/3)...`)
+        setTimeout(() => {
+          loadChapterContent(chapterIndex, buffer, retryCount + 1)
+        }, 1000 * (retryCount + 1))
+        return
+      }
+      
+      setError(errorMessage)
+      setErrorDetail(detailMessage)
     } finally {
       setLoadingChapter(false)
     }
@@ -1697,7 +1748,7 @@ export default function ReaderPage() {
             marginBottom: `${paragraphSpacing}em`,
           }}
         >
-          {chapter.content}
+          {renderChapterWithHighlights(chapter)}
         </Typography>
       </Box>
     ))
@@ -1719,7 +1770,32 @@ export default function ReaderPage() {
         <IconButton onClick={() => navigate(-1)} sx={{ color: currentTheme.text }}>
           <ArrowBack />
         </IconButton>
-        <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>
+        <Alert severity="error" sx={{ mt: 2 }}>
+          <Typography variant="body1" fontWeight="bold">{error}</Typography>
+          {errorDetail && (
+            <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>
+              {errorDetail}
+            </Typography>
+          )}
+        </Alert>
+        <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
+          <IconButton 
+            onClick={() => {
+              setError('')
+              setErrorDetail(null)
+              loadBook()
+            }}
+            sx={{ 
+              color: currentTheme.text,
+              border: `1px solid ${currentTheme.text}`,
+              borderRadius: 1,
+              px: 2
+            }}
+          >
+            <RestartAlt sx={{ mr: 1 }} />
+            <Typography variant="button">重试</Typography>
+          </IconButton>
+        </Box>
       </Box>
     )
   }
