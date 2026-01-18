@@ -5,6 +5,7 @@ AI 路由
 import json
 import asyncio
 import uuid
+from dataclasses import asdict
 from typing import List, Optional, Dict
 from datetime import datetime
 
@@ -18,6 +19,7 @@ from app.models import Book, Library, FilenamePattern, Tag, User
 from app.web.routes.auth import get_current_admin, get_current_user
 from app.utils.logger import log
 from app.core.ai.service import get_ai_service
+from app.core.ai.config import ai_config
 
 router = APIRouter()
 
@@ -464,17 +466,255 @@ async def analyze_filenames(
         "failed": failed_count
     }
 
+# ==================== Admin AI 配置管理 API ====================
+# 这些 API 由前端 AITab.tsx 调用，路径为 /api/admin/ai/*
+
+# 预设模型列表
+PRESET_MODELS = {
+    "openai": [
+        {"id": "gpt-4o", "name": "GPT-4o"},
+        {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
+        {"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
+        {"id": "gpt-4", "name": "GPT-4"},
+        {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo"},
+    ],
+    "claude": [
+        {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet"},
+        {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"},
+        {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus"},
+        {"id": "claude-3-sonnet-20240229", "name": "Claude 3 Sonnet"},
+        {"id": "claude-3-haiku-20240307", "name": "Claude 3 Haiku"},
+    ],
+    "ollama": [
+        {"id": "llama3.2", "name": "Llama 3.2"},
+        {"id": "llama3.1", "name": "Llama 3.1"},
+        {"id": "qwen2.5", "name": "Qwen 2.5"},
+        {"id": "gemma2", "name": "Gemma 2"},
+        {"id": "mistral", "name": "Mistral"},
+    ],
+    "custom": [
+        {"id": "custom", "name": "自定义模型"},
+    ],
+}
+
+
+class ProviderConfigUpdate(BaseModel):
+    """更新 Provider 配置请求"""
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None
+    model: Optional[str] = None
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+    timeout: Optional[int] = None
+    sample_size: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+class FeaturesConfigUpdate(BaseModel):
+    """更新 Features 配置请求"""
+    metadata_enhancement: Optional[bool] = None
+    auto_extract_title: Optional[bool] = None
+    auto_extract_author: Optional[bool] = None
+    auto_generate_summary: Optional[bool] = None
+    smart_classification: Optional[bool] = None
+    auto_tagging: Optional[bool] = None
+    content_rating: Optional[bool] = None
+    semantic_search: Optional[bool] = None
+    batch_limit: Optional[int] = None
+    daily_limit: Optional[int] = None
+
+
 @router.get("/config")
-async def get_ai_config(
+async def get_admin_ai_config(
     current_user: User = Depends(get_current_admin)
 ):
-    """获取 AI 配置"""
-    ai_service = get_ai_service()
-    # 注意：这里假设 ai_service 有相应的方法或属性
-    # 如果 AIService 类没有直接暴露这些，需要通过 ai_service.config 访问
-    return {
-        "enabled": ai_service.config.is_enabled(),
-        "providers": ["openai", "claude", "ollama"], # 简化处理，实际应从 config 获取
-        "default_provider": ai_service.config.provider.provider,
-        "models": [ai_service.config.provider.model]
-    }
+    """获取 AI 配置（管理员）"""
+    return ai_config.to_dict()
+
+
+@router.get("/models")
+async def get_ai_models(
+    current_user: User = Depends(get_current_admin)
+):
+    """获取预设模型列表"""
+    return PRESET_MODELS
+
+
+@router.put("/provider")
+async def update_ai_provider(
+    data: ProviderConfigUpdate,
+    current_user: User = Depends(get_current_admin)
+):
+    """更新 AI Provider 配置"""
+    update_data = data.model_dump(exclude_none=True)
+    
+    if update_data:
+        ai_config.update_provider(**update_data)
+        log.info(f"管理员 {current_user.username} 更新了 AI Provider 配置")
+    
+    return {"message": "配置已更新", "provider": asdict(ai_config.provider)}
+
+
+@router.put("/features")
+async def update_ai_features(
+    data: FeaturesConfigUpdate,
+    current_user: User = Depends(get_current_admin)
+):
+    """更新 AI Features 配置"""
+    update_data = data.model_dump(exclude_none=True)
+    
+    if update_data:
+        ai_config.update_features(**update_data)
+        log.info(f"管理员 {current_user.username} 更新了 AI Features 配置")
+    
+    return {"message": "功能配置已更新", "features": asdict(ai_config.features)}
+
+
+@router.post("/test")
+async def test_ai_connection(
+    current_user: User = Depends(get_current_admin)
+):
+    """测试 AI 连接"""
+    try:
+        if not ai_config.is_enabled():
+            return {"success": False, "error": "AI 服务未启用或缺少 API 密钥"}
+        
+        ai_service = get_ai_service()
+        
+        # 发送一个简单的测试消息
+        response = await ai_service.chat(
+            messages=[
+                {"role": "system", "content": "你是一个测试助手。"},
+                {"role": "user", "content": "请回复 'OK' 以确认连接正常。"}
+            ]
+        )
+        
+        if response.success:
+            return {"success": True, "message": "连接成功", "response": response.content[:100]}
+        else:
+            return {"success": False, "error": response.error or "未知错误"}
+            
+    except Exception as e:
+        log.error(f"AI 连接测试失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/extract-metadata")
+async def test_extract_metadata(
+    filename: str = Query(..., description="要分析的文件名"),
+    content_preview: Optional[str] = Query(None, description="内容预览"),
+    current_user: User = Depends(get_current_admin)
+):
+    """测试元数据提取"""
+    try:
+        if not ai_config.is_enabled():
+            return {"success": False, "error": "AI 服务未启用"}
+        
+        ai_service = get_ai_service()
+        
+        prompt = f"""请分析以下小说文件名，提取书名、作者和额外信息。
+文件名：{filename}
+"""
+        if content_preview:
+            prompt += f"\n内容预览：\n{content_preview[:500]}\n"
+        
+        prompt += """
+请返回 JSON 格式：
+{
+    "title": "书名",
+    "author": "作者(如果没有则为null)",
+    "extra": "额外信息(如卷数、状态等，没有则为null)",
+    "tags": ["标签1", "标签2"],
+    "language": "语言(如 zh-CN)",
+    "series": "系列名(如果有)"
+}
+只返回 JSON，不要其他内容。
+"""
+        
+        response = await ai_service.chat(
+            messages=[
+                {"role": "system", "content": "你是一个专业的小说元数据分析助手。只返回JSON格式数据。"},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        if not response.success:
+            return {"success": False, "error": response.error}
+        
+        # 解析 JSON
+        try:
+            content = response.content
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start >= 0 and end > start:
+                metadata = json.loads(content[start:end])
+                return {"success": True, "metadata": metadata}
+            else:
+                return {"success": False, "error": "无法解析响应"}
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"JSON 解析失败: {e}"}
+            
+    except Exception as e:
+        log.error(f"元数据提取测试失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/classify")
+async def test_ai_classify(
+    title: str = Query(..., description="书名"),
+    content_preview: Optional[str] = Query(None, description="内容预览"),
+    current_user: User = Depends(get_current_admin)
+):
+    """测试 AI 分类"""
+    try:
+        if not ai_config.is_enabled():
+            return {"success": False, "error": "AI 服务未启用"}
+        
+        ai_service = get_ai_service()
+        
+        prompt = f"""请为以下小说进行分类并推荐标签。
+书名：{title}
+"""
+        if content_preview:
+            prompt += f"\n内容预览：\n{content_preview[:500]}\n"
+        
+        prompt += """
+请返回 JSON 格式：
+{
+    "genre": "主要类型(如 玄幻、都市、言情、科幻等)",
+    "sub_genre": "子类型",
+    "tags": ["标签1", "标签2", "标签3"],
+    "content_rating": "内容分级(general/teen/adult/r18)",
+    "target_audience": "目标读者群(如 男频、女频、全年龄)",
+    "mood": "整体风格(如 轻松、热血、虐心等)"
+}
+只返回 JSON，不要其他内容。
+"""
+        
+        response = await ai_service.chat(
+            messages=[
+                {"role": "system", "content": "你是一个专业的小说分类助手。只返回JSON格式数据。"},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        if not response.success:
+            return {"success": False, "error": response.error}
+        
+        # 解析 JSON
+        try:
+            content = response.content
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start >= 0 and end > start:
+                classification = json.loads(content[start:end])
+                return {"success": True, "classification": classification}
+            else:
+                return {"success": False, "error": "无法解析响应"}
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"JSON 解析失败: {e}"}
+            
+    except Exception as e:
+        log.error(f"AI 分类测试失败: {e}")
+        return {"success": False, "error": str(e)}
