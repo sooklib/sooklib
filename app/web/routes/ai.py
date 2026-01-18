@@ -660,6 +660,599 @@ async def test_extract_metadata(
         return {"success": False, "error": str(e)}
 
 
+# ==================== 书库 AI/规则 提取 API ====================
+# 这些 API 由 LibrariesTab.tsx 调用
+
+
+@router.post("/libraries/{library_id}/ai-extract")
+async def ai_extract_library_metadata(
+    library_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    使用AI提取书库中书籍的元数据（预览模式）
+    返回待变更列表供用户确认
+    """
+    # 验证书库
+    result = await db.execute(select(Library).where(Library.id == library_id))
+    library = result.scalar_one_or_none()
+    if not library:
+        return {"success": False, "error": "书库不存在"}
+    
+    if not ai_config.is_enabled():
+        return {"success": False, "error": "AI服务未启用"}
+    
+    ai_service = get_ai_service()
+    
+    # 获取书库中的书籍（只取未有作者的或需要优化标题的）
+    from app.models import BookVersion
+    query = (
+        select(Book)
+        .where(Book.library_id == library_id)
+        .limit(ai_config.provider.sample_size or 50)
+    )
+    result = await db.execute(query)
+    books = result.scalars().all()
+    
+    changes = []
+    for book in books:
+        # 获取主版本文件名
+        version_result = await db.execute(
+            select(BookVersion)
+            .where(BookVersion.book_id == book.id)
+            .where(BookVersion.is_primary == True)
+        )
+        version = version_result.scalar_one_or_none()
+        filename = version.file_name if version else book.title
+        
+        try:
+            # 调用 AI 分析
+            messages = [
+                {"role": "system", "content": "你是专业的小说文件名解析助手。只返回JSON格式数据。"},
+                {"role": "user", "content": f"""请分析以下小说文件名，提取书名、作者。
+文件名：{filename}
+
+请返回 JSON 格式：
+{{"title": "书名", "author": "作者(如果没有则为null)", "tags": ["标签1", "标签2"]}}
+只返回 JSON，不要其他内容。"""}
+            ]
+            
+            response = await ai_service.chat(messages=messages)
+            if response.success:
+                content = response.content
+                start = content.find('{')
+                end = content.rfind('}') + 1
+                if start >= 0 and end > start:
+                    data = json.loads(content[start:end])
+                    
+                    # 检查是否有变更
+                    author_name = book.author.name if book.author else None
+                    if data.get("title") != book.title or data.get("author") != author_name:
+                        changes.append({
+                            "book_id": book.id,
+                            "filename": filename,
+                            "current": {
+                                "title": book.title,
+                                "author": author_name
+                            },
+                            "extracted": {
+                                "title": data.get("title"),
+                                "author": data.get("author"),
+                                "tags": data.get("tags", [])
+                            }
+                        })
+        except Exception as e:
+            log.error(f"AI分析书籍 {book.id} 失败: {e}")
+            continue
+    
+    return {
+        "success": True,
+        "library_id": library_id,
+        "library_name": library.name,
+        "total_books": len(books),
+        "sampled_count": len(books),
+        "changes": changes
+    }
+
+
+@router.post("/libraries/{library_id}/ai-extract/apply")
+async def apply_ai_extract(
+    library_id: int,
+    changes: List[dict] = None,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """应用AI提取的元数据变更"""
+    from app.models import Author
+    from pydantic import BaseModel
+    
+    class ApplyRequest(BaseModel):
+        changes: List[dict]
+    
+    # 这里需要从请求体获取 changes
+    from fastapi import Body
+    # 临时处理：直接从参数获取
+    
+    if not changes:
+        return {"success": False, "error": "没有变更数据"}
+    
+    applied_count = 0
+    for change in changes:
+        try:
+            book_result = await db.execute(
+                select(Book).where(Book.id == change["book_id"])
+            )
+            book = book_result.scalar_one_or_none()
+            if not book:
+                continue
+            
+            extracted = change.get("extracted", {})
+            
+            # 更新标题
+            if extracted.get("title"):
+                book.title = extracted["title"]
+            
+            # 更新作者
+            if extracted.get("author"):
+                author_result = await db.execute(
+                    select(Author).where(Author.name == extracted["author"])
+                )
+                author = author_result.scalar_one_or_none()
+                if not author:
+                    author = Author(name=extracted["author"])
+                    db.add(author)
+                    await db.flush()
+                book.author_id = author.id
+            
+            applied_count += 1
+        except Exception as e:
+            log.error(f"应用变更失败 book_id={change.get('book_id')}: {e}")
+            continue
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "applied_count": applied_count
+    }
+
+
+@router.post("/libraries/{library_id}/pattern-extract")
+async def pattern_extract_library_metadata(
+    library_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    使用文件名规则提取书库中书籍的元数据（预览模式）
+    返回待变更列表供用户确认
+    """
+    import re
+    
+    # 验证书库
+    result = await db.execute(select(Library).where(Library.id == library_id))
+    library = result.scalar_one_or_none()
+    if not library:
+        return {"success": False, "error": "书库不存在"}
+    
+    # 获取所有活跃的规则
+    patterns_result = await db.execute(
+        select(FilenamePattern)
+        .where(FilenamePattern.is_active == True)
+        .order_by(FilenamePattern.priority.desc())
+    )
+    patterns = patterns_result.scalars().all()
+    
+    if not patterns:
+        return {"success": False, "error": "没有可用的文件名规则"}
+    
+    # 获取书库中的书籍
+    from app.models import BookVersion
+    query = select(Book).where(Book.library_id == library_id)
+    result = await db.execute(query)
+    books = result.scalars().all()
+    
+    changes = []
+    matched_count = 0
+    
+    for book in books:
+        # 获取主版本文件名
+        version_result = await db.execute(
+            select(BookVersion)
+            .where(BookVersion.book_id == book.id)
+            .where(BookVersion.is_primary == True)
+        )
+        version = version_result.scalar_one_or_none()
+        filename = version.file_name if version else book.title
+        
+        # 尝试匹配规则
+        for pattern in patterns:
+            try:
+                match = re.match(pattern.regex_pattern, filename)
+                if match:
+                    matched_count += 1
+                    groups = match.groups()
+                    
+                    # 假设第1组是标题，第2组是作者（如果有）
+                    extracted_title = groups[0].strip() if len(groups) > 0 else None
+                    extracted_author = groups[1].strip() if len(groups) > 1 else None
+                    
+                    author_name = book.author.name if book.author else None
+                    if extracted_title != book.title or extracted_author != author_name:
+                        changes.append({
+                            "book_id": book.id,
+                            "filename": filename,
+                            "pattern_name": pattern.name,
+                            "current": {
+                                "title": book.title,
+                                "author": author_name
+                            },
+                            "extracted": {
+                                "title": extracted_title,
+                                "author": extracted_author
+                            }
+                        })
+                    break  # 匹配到第一个规则就停止
+            except Exception as e:
+                log.error(f"规则 {pattern.name} 匹配失败: {e}")
+                continue
+    
+    return {
+        "success": True,
+        "library_id": library_id,
+        "library_name": library.name,
+        "total_books": len(books),
+        "matched_count": matched_count,
+        "patterns_used": len(patterns),
+        "changes": changes
+    }
+
+
+@router.post("/libraries/{library_id}/pattern-extract/apply")
+async def apply_pattern_extract(
+    library_id: int,
+    changes: List[dict] = None,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """应用规则提取的元数据变更"""
+    from app.models import Author
+    
+    if not changes:
+        return {"success": False, "error": "没有变更数据"}
+    
+    applied_count = 0
+    for change in changes:
+        try:
+            book_result = await db.execute(
+                select(Book).where(Book.id == change["book_id"])
+            )
+            book = book_result.scalar_one_or_none()
+            if not book:
+                continue
+            
+            extracted = change.get("extracted", {})
+            
+            # 更新标题
+            if extracted.get("title"):
+                book.title = extracted["title"]
+            
+            # 更新作者
+            if extracted.get("author"):
+                author_result = await db.execute(
+                    select(Author).where(Author.name == extracted["author"])
+                )
+                author = author_result.scalar_one_or_none()
+                if not author:
+                    author = Author(name=extracted["author"])
+                    db.add(author)
+                    await db.flush()
+                book.author_id = author.id
+            
+            applied_count += 1
+        except Exception as e:
+            log.error(f"应用变更失败 book_id={change.get('book_id')}: {e}")
+            continue
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "applied_count": applied_count
+    }
+
+
+@router.post("/libraries/{library_id}/pattern-extract/apply-all")
+async def apply_all_patterns_to_library(
+    library_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    直接将所有匹配的规则应用到书库（不预览）
+    """
+    import re
+    from app.models import Author, BookVersion
+    
+    # 验证书库
+    result = await db.execute(select(Library).where(Library.id == library_id))
+    library = result.scalar_one_or_none()
+    if not library:
+        return {"success": False, "error": "书库不存在"}
+    
+    # 获取所有活跃的规则
+    patterns_result = await db.execute(
+        select(FilenamePattern)
+        .where(FilenamePattern.is_active == True)
+        .order_by(FilenamePattern.priority.desc())
+    )
+    patterns = patterns_result.scalars().all()
+    
+    if not patterns:
+        return {"success": False, "error": "没有可用的文件名规则"}
+    
+    # 获取书库中的书籍
+    query = select(Book).where(Book.library_id == library_id)
+    result = await db.execute(query)
+    books = result.scalars().all()
+    
+    applied_count = 0
+    matched_count = 0
+    
+    for book in books:
+        # 获取主版本文件名
+        version_result = await db.execute(
+            select(BookVersion)
+            .where(BookVersion.book_id == book.id)
+            .where(BookVersion.is_primary == True)
+        )
+        version = version_result.scalar_one_or_none()
+        filename = version.file_name if version else book.title
+        
+        # 尝试匹配规则
+        for pattern in patterns:
+            try:
+                match = re.match(pattern.regex_pattern, filename)
+                if match:
+                    matched_count += 1
+                    groups = match.groups()
+                    
+                    extracted_title = groups[0].strip() if len(groups) > 0 else None
+                    extracted_author = groups[1].strip() if len(groups) > 1 else None
+                    
+                    changed = False
+                    
+                    # 更新标题
+                    if extracted_title and extracted_title != book.title:
+                        book.title = extracted_title
+                        changed = True
+                    
+                    # 更新作者
+                    if extracted_author:
+                        author_name = book.author.name if book.author else None
+                        if extracted_author != author_name:
+                            author_result = await db.execute(
+                                select(Author).where(Author.name == extracted_author)
+                            )
+                            author = author_result.scalar_one_or_none()
+                            if not author:
+                                author = Author(name=extracted_author)
+                                db.add(author)
+                                await db.flush()
+                            book.author_id = author.id
+                            changed = True
+                    
+                    if changed:
+                        applied_count += 1
+                    
+                    break  # 匹配到第一个规则就停止
+            except Exception as e:
+                log.error(f"规则 {pattern.name} 匹配失败: {e}")
+                continue
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "library_id": library_id,
+        "library_name": library.name,
+        "matched_count": matched_count,
+        "applied_count": applied_count
+    }
+
+
+@router.post("/patterns/batch-analyze-library/{library_id}")
+async def batch_analyze_library_with_ai(
+    library_id: int,
+    batch_size: int = 1000,
+    apply_results: bool = False,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    使用AI批量分析书库中的文件名并生成规则
+    """
+    from app.models import BookVersion, Author
+    import re
+    
+    # 验证书库
+    result = await db.execute(select(Library).where(Library.id == library_id))
+    library = result.scalar_one_or_none()
+    if not library:
+        return {"success": False, "error": "书库不存在"}
+    
+    # 获取书库中的文件名
+    query = (
+        select(BookVersion.file_name, Book.id, Book.title)
+        .join(Book)
+        .where(Book.library_id == library_id)
+        .limit(batch_size)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    
+    if not rows:
+        return {"success": False, "error": "书库中没有书籍"}
+    
+    filenames = [row[0] for row in rows]
+    book_map = {row[0]: {"id": row[1], "title": row[2]} for row in rows}
+    
+    # 使用 AI 分析生成规则
+    ai_service = get_ai_service()
+    if not ai_service.config.is_enabled():
+        return {"success": False, "error": "AI服务未启用"}
+    
+    # 分批发送给 AI（每批200条）
+    batch_limit = 200
+    all_recognized = []
+    generated_patterns = []
+    
+    for i in range(0, len(filenames), batch_limit):
+        batch = filenames[i:i+batch_limit]
+        
+        try:
+            filenames_list = "\n".join([f"{j+1}. {fn}" for j, fn in enumerate(batch)])
+            prompt = f"""分析以下小说文件名，提取书名和作者。同时，如果发现多个文件名有相同的命名模式，请总结出正则表达式规则。
+
+文件名列表：
+{filenames_list}
+
+请返回JSON格式：
+{{
+    "recognized": [
+        {{"index": 1, "filename": "文件名", "title": "书名", "author": "作者或null", "review": "点评或null"}}
+    ],
+    "patterns": [
+        {{"name": "规则名", "regex": "正则表达式", "title_group": 1, "author_group": 2, "match_count": 10}}
+    ]
+}}
+只返回JSON。"""
+
+            messages = [
+                {"role": "system", "content": "你是专业的小说文件名分析助手。"},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await ai_service.chat(messages=messages)
+            if response.success:
+                content = response.content
+                start = content.find('{')
+                end = content.rfind('}') + 1
+                if start >= 0 and end > start:
+                    data = json.loads(content[start:end])
+                    
+                    # 收集识别结果
+                    for item in data.get("recognized", []):
+                        idx = item.get("index", 0) - 1
+                        if 0 <= idx < len(batch):
+                            item["filename"] = batch[idx]
+                            all_recognized.append(item)
+                    
+                    # 收集规则
+                    for pattern in data.get("patterns", []):
+                        if pattern.get("regex") and pattern.get("name"):
+                            generated_patterns.append(pattern)
+        except Exception as e:
+            log.error(f"AI分析批次 {i//batch_limit + 1} 失败: {e}")
+            continue
+    
+    # 创建新规则
+    patterns_created = []
+    for pattern_data in generated_patterns:
+        try:
+            # 检查规则是否已存在
+            existing = await db.execute(
+                select(FilenamePattern).where(FilenamePattern.name == pattern_data["name"])
+            )
+            if not existing.scalar_one_or_none():
+                new_pattern = FilenamePattern(
+                    name=pattern_data["name"],
+                    regex_pattern=pattern_data["regex"],
+                    priority=pattern_data.get("match_count", 0),
+                    created_by="ai",
+                    is_active=True
+                )
+                db.add(new_pattern)
+                patterns_created.append(pattern_data["name"])
+        except Exception as e:
+            log.error(f"创建规则失败: {e}")
+    
+    # 应用结果
+    applied_count = 0
+    reviews_added = 0
+    
+    if apply_results:
+        for item in all_recognized:
+            filename = item.get("filename")
+            if filename not in book_map:
+                continue
+            
+            book_info = book_map[filename]
+            try:
+                book_result = await db.execute(
+                    select(Book).where(Book.id == book_info["id"])
+                )
+                book = book_result.scalar_one_or_none()
+                if not book:
+                    continue
+                
+                # 更新标题
+                if item.get("title") and item["title"] != book.title:
+                    book.title = item["title"]
+                    applied_count += 1
+                
+                # 更新作者
+                if item.get("author"):
+                    author_result = await db.execute(
+                        select(Author).where(Author.name == item["author"])
+                    )
+                    author = author_result.scalar_one_or_none()
+                    if not author:
+                        author = Author(name=item["author"])
+                        db.add(author)
+                        await db.flush()
+                    if book.author_id != author.id:
+                        book.author_id = author.id
+                        applied_count += 1
+                
+                # 添加点评到简介
+                if item.get("review"):
+                    if not book.description:
+                        book.description = item["review"]
+                    elif item["review"] not in book.description:
+                        book.description = f"{book.description}\n\n{item['review']}"
+                    reviews_added += 1
+                    
+            except Exception as e:
+                log.error(f"应用结果失败 book_id={book_info['id']}: {e}")
+    
+    await db.commit()
+    
+    # 构建响应（限制返回数量避免过大）
+    recognized_books = []
+    for item in all_recognized[:100]:
+        recognized_books.append({
+            "filename": item.get("filename", ""),
+            "title": item.get("title"),
+            "author": item.get("author"),
+            "has_review": bool(item.get("review")),
+            "review_text": item.get("review")
+        })
+    
+    return {
+        "success": True,
+        "total_filenames": len(filenames),
+        "recognized_count": len(all_recognized),
+        "recognized_books": recognized_books,
+        "books_truncated": len(all_recognized) > 100,
+        "patterns": generated_patterns,
+        "patterns_created": patterns_created,
+        "applied_count": applied_count,
+        "reviews_added": reviews_added
+    }
+
+
 @router.post("/classify")
 async def test_ai_classify(
     title: str = Query(..., description="书名"),
