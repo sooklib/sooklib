@@ -447,10 +447,7 @@ export default function ReaderPage() {
   }, [currentChapter, progress, format])
 
   // 使用 ref 保持 saveProgress 的最新引用，以便在 handleScroll 中使用
-  const saveProgressRef = useRef(saveProgress)
-  useEffect(() => {
-    saveProgressRef.current = saveProgress
-  }, [saveProgress])
+  const saveProgressRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   // 页面卸载时保存进度
   useEffect(() => {
@@ -973,7 +970,7 @@ export default function ReaderPage() {
     }
   }
 
-  const saveProgress = async () => {
+  const saveProgress = useCallback(async () => {
     try {
       // 计算当前章节内的滚动偏移
       let scrollOffset = 0
@@ -1002,7 +999,12 @@ export default function ReaderPage() {
     } catch (err) {
       console.error('保存进度失败:', err)
     }
-  }
+  }, [id, format, currentChapter, progress, totalChapters])
+
+  // 更新 saveProgressRef
+  useEffect(() => {
+    saveProgressRef.current = saveProgress
+  }, [saveProgress])
 
   // 监听滚动，更新当前章节并预加载
   const handleScroll = useCallback(() => {
