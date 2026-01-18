@@ -416,7 +416,7 @@ async def get_library_scan_tasks(
     response = []
     for task in tasks:
         error_details = None
-        if task.error_message and task.error_message.startswith('[') or task.error_message.startswith('{'):
+        if task.error_message and (task.error_message.startswith('[') or task.error_message.startswith('{')):
             try:
                 error_details = json.loads(task.error_message)
             except:
