@@ -94,14 +94,6 @@ export default function HistoryPage() {
                 {/* 书籍卡片 */}
                 <Box sx={{ flexGrow: 1 }}>
                   <BookCard
-                  book={{
-                    id: item.book_id,
-                    title: item.book_title,
-                    author_name: item.author_name,
-                    file_format: '',
-                    added_at: item.last_read_at,
-                    cover_url: null,
-                    is_new: false,
                     book={{
                       id: item.book_id,
                       title: item.book_title,
