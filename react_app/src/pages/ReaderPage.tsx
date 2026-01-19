@@ -929,7 +929,37 @@ export default function ReaderPage() {
       return true
     } catch (err) {
       console.error('加载目录失败:', err)
-      handleConvertSuggestion(err)
+      const status = (err as any)?.response?.status
+      if (status === 422 && isConvertibleSource() && id) {
+        try {
+          setConvertPromptOpen(true)
+          setConvertStatus('running')
+          setConvertProgress(0)
+          setConvertMessage('检测到可用的 EPUB 转换...')
+          const response = await api.post(`/api/books/${id}/convert`, {
+            target_format: 'epub',
+            force: false
+          })
+          const data = response.data
+          if (data.status === 'ready' && data.output_url) {
+            await openConvertedEpub(data.output_url)
+            return false
+          }
+          if (data.status === 'running' && data.job_id) {
+            setConvertJobId(data.job_id)
+            startConvertPolling(data.job_id)
+            return false
+          }
+          setConvertStatus('failed')
+          setConvertMessage(data.message || '转换失败')
+        } catch (convertErr: any) {
+          console.error('检查转换状态失败:', convertErr)
+          setConvertStatus('failed')
+          setConvertMessage(convertErr?.response?.data?.detail || convertErr?.message || '转换失败')
+        }
+      } else {
+        handleConvertSuggestion(err)
+      }
       return false
     }
   }
