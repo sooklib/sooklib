@@ -1241,6 +1241,20 @@ export default function ReaderPage() {
     }
   }
 
+  const waitForEpubContainer = async (timeoutMs: number = 3000): Promise<HTMLDivElement> => {
+    const start = Date.now()
+    while (true) {
+      const el = epubViewerRef.current
+      if (el && el.clientHeight > 0) {
+        return el
+      }
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('EPUB 容器未就绪')
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    }
+  }
+
   const loadEpub = async (customUrl?: string, preferBinary: boolean = false) => {
     try {
       const epubUrl = customUrl || `/api/books/${id}/content`
@@ -1271,32 +1285,31 @@ export default function ReaderPage() {
         setEpubToc(navigation.toc as EpubTocItem[])
       }
       
-      if (epubViewerRef.current) {
-        const rendition = book.renderTo(epubViewerRef.current, {
-          width: '100%',
-          height: '100%',
-          spread: 'none'
-        })
+      const container = await waitForEpubContainer(5000)
+      const rendition = book.renderTo(container, {
+        width: '100%',
+        height: '100%',
+        spread: 'none'
+      })
         
-        setEpubRendition(rendition)
+      setEpubRendition(rendition)
         
-        const currentTheme = themes[theme]
-        rendition.themes.default({
-          body: {
-            background: currentTheme.bg,
-            color: currentTheme.text,
-            'font-size': `${fontSize}px`,
-            'line-height': `${lineHeight}`,
-          }
-        })
+      const currentTheme = themes[theme]
+      rendition.themes.default({
+        body: {
+          background: currentTheme.bg,
+          color: currentTheme.text,
+          'font-size': `${fontSize}px`,
+          'line-height': `${lineHeight}`,
+        }
+      })
         
-        await withTimeout(rendition.display() as Promise<void>, 30000, 'EPUB 渲染')
+      await withTimeout(rendition.display() as Promise<void>, 30000, 'EPUB 渲染')
         
-        rendition.on('relocated', (location: any) => {
-          const prog = book.locations.percentageFromCfi(location.start.cfi)
-          setProgress(prog || 0)
-        })
-      }
+      rendition.on('relocated', (location: any) => {
+        const prog = book.locations.percentageFromCfi(location.start.cfi)
+        setProgress(prog || 0)
+      })
     } catch (err: any) {
       console.error('加载 EPUB 失败:', err)
       setError('EPUB 加载失败')
