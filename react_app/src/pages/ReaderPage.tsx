@@ -164,10 +164,11 @@ export default function ReaderPage() {
   const [convertMessage, setConvertMessage] = useState<string | null>(null)
   const [convertJobId, setConvertJobId] = useState<string | null>(null)
   const convertPollRef = useRef<number | null>(null)
+  const sourceFormatRef = useRef<string | null>(null)
   // 兼容旧代码
   const isEpub = format === 'epub'
-  const isConvertibleFormat = useMemo(() => {
-    const source = bookInfo?.format
+  const isConvertibleSource = useCallback(() => {
+    const source = sourceFormatRef.current || bookInfo?.format
     if (!source) return false
     const normalized = source.toLowerCase()
     return ['mobi', '.mobi', 'azw3', '.azw3'].includes(normalized)
@@ -711,7 +712,7 @@ export default function ReaderPage() {
   }, [epubRendition, fontSize, lineHeight, theme, letterSpacing])
 
   const handleConvertSuggestion = useCallback((err: any) => {
-    if (!isConvertibleFormat) return
+    if (!isConvertibleSource()) return
     if (convertStatus === 'running') return
     if (convertPromptOpen) return
 
@@ -720,7 +721,7 @@ export default function ReaderPage() {
     setConvertStatus('idle')
     setConvertProgress(0)
     setConvertPromptOpen(true)
-  }, [isConvertibleFormat, convertPromptOpen, convertStatus])
+  }, [convertPromptOpen, convertStatus, isConvertibleSource])
 
   const resetConvertPolling = () => {
     if (convertPollRef.current) {
@@ -857,6 +858,7 @@ export default function ReaderPage() {
 
       const bookResponse = await api.get(`/api/books/${id}`)
       const fileFormat = bookResponse.data.file_format.toLowerCase()
+      sourceFormatRef.current = fileFormat
       setBookInfo({
         title: bookResponse.data.title,
         format: fileFormat,
@@ -1096,7 +1098,7 @@ export default function ReaderPage() {
         errorMessage = err.message
       }
 
-      const shouldSuggestConvert = isConvertibleFormat && (status === 422 || status === 500)
+      const shouldSuggestConvert = isConvertibleSource() && (status === 422 || status === 500)
       if (shouldSuggestConvert) {
         handleConvertSuggestion(err)
       }
