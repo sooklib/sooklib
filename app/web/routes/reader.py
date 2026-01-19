@@ -257,51 +257,65 @@ async def _read_txt_file(file_path: Path) -> Optional[str]:
         log.error(f"疑似二进制文件，拒绝按TXT读取: {file_path}")
         raise HTTPException(status_code=415, detail="疑似非文本文件，可能扩展名错误或文件损坏")
     
-    # 1. 尝试常见编码
-    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1']
-    
-    for encoding in encodings:
+    def decode_quality(text: str) -> float:
+        if not text:
+            return 1.0
+        total = len(text)
+        replacement = text.count('\ufffd')
+        control = sum(1 for ch in text if ord(ch) < 32 and ch not in '\t\n\r')
+        return (replacement + control) / total
+
+    def cjk_ratio(text: str) -> float:
+        if not text:
+            return 0.0
+        total = len(text)
+        cjk = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
+        return cjk / total
+
+    def choose_encoding() -> Optional[str]:
+        candidates = [
+            'utf-8', 'utf-8-sig',
+            'gb18030', 'gbk', 'gb2312',
+            'big5',
+            'utf-16', 'utf-16-le', 'utf-16-be',
+        ]
         try:
-            with open(file_path, 'r', encoding=encoding) as f:
-                content = f.read()
-            log.debug(f"成功使用编码 {encoding} 读取文件: {file_path.name}")
-            return _clean_txt_content(content)
-        except UnicodeDecodeError:
-            continue
+            with open(file_path, 'rb') as f:
+                raw_data = f.read(200000)
         except Exception as e:
-            log.warning(f"使用编码 {encoding} 读取文件时出错: {e}")
-            continue
-            
-    # 2. 使用 chardet 自动检测
-    log.debug(f"常见编码均失败，尝试自动检测: {file_path.name}")
-    try:
-        with open(file_path, 'rb') as f:
-            raw_data = f.read(50000)  # 读取前50KB进行检测（增加样本量提高准确性）
-            result = chardet.detect(raw_data)
-            detected_encoding = result['encoding']
-            confidence = result.get('confidence', 0)
-            
-            log.info(f"自动检测到编码: {detected_encoding} (置信度: {confidence:.2f}) for {file_path.name}")
-            
-            if detected_encoding:
-                try:
-                    with open(file_path, 'r', encoding=detected_encoding, errors='replace') as f:
-                        content = f.read()
-                    return _clean_txt_content(content)
-                except Exception as e:
-                    log.error(f"使用检测到的编码 {detected_encoding} 读取失败: {e}")
-    except Exception as e:
-        log.error(f"自动检测编码失败: {e}")
-    
-    # 3. 最后尝试用 latin-1 强制读取（latin-1 可以读取任何字节）
-    log.warning(f"尝试使用 latin-1 强制读取文件: {file_path.name}")
-    try:
-        with open(file_path, 'r', encoding='latin-1') as f:
-            content = f.read()
-        return _clean_txt_content(content)
-    except Exception as e:
-        log.error(f"latin-1 强制读取也失败: {e}")
-    
+            log.error(f"读取编码检测样本失败: {e}")
+            return None
+
+        best_encoding = None
+        best_score = None
+        for encoding in candidates:
+            try:
+                decoded = raw_data.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+            score = (decode_quality(decoded), -cjk_ratio(decoded))
+            if best_score is None or score < best_score:
+                best_score = score
+                best_encoding = encoding
+
+        if best_encoding:
+            return best_encoding
+
+        result = chardet.detect(raw_data)
+        return result.get('encoding')
+
+    encoding = choose_encoding()
+    if encoding:
+        try:
+            with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+                content = f.read()
+            if decode_quality(content[:10000]) > 0.2:
+                log.warning(f"编码 {encoding} 读取质量较差: {file_path.name}")
+            log.debug(f"使用编码 {encoding} 读取文件: {file_path.name}")
+            return _clean_txt_content(content)
+        except Exception as e:
+            log.error(f"使用编码 {encoding} 读取失败: {e}")
+
     log.error(f"无法读取文件 (所有编码均失败): {file_path}")
     return None
 
