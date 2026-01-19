@@ -499,6 +499,7 @@ END_JSON"""
 1) 仅输出 JSON，不要解释，不要 Markdown。
 2) 无法确定写 null。
 3) patterns.regex 需兼容 Python re。
+4) 字段含义: title=书名, author=作者, extra=系列/卷数/版本/点评等, has_review=是否含点评。
 
 输出格式（严格一致）:
 BEGIN_JSON

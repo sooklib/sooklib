@@ -1122,6 +1122,7 @@ async def batch_analyze_library_with_ai(
 1) 仅输出 JSON，不要解释，不要 Markdown。
 2) 不确定的字段写 null。
 3) regex 兼容 Python re。
+4) 字段含义: title=书名, author=作者, review=点评/推书评价。
 
 输出格式（严格一致）:
 BEGIN_JSON
