@@ -108,7 +108,8 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"Telegram Bot 启动失败: {e}")
-            raise
+            self._running = False
+            return
     
     async def stop(self):
         """停止 Bot"""

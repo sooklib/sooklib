@@ -34,9 +34,12 @@ async def lifespan(app: FastAPI):
     log.info("定时备份调度器已启动")
     
     # 启动 Telegram Bot
-    await telegram_bot.start()
-    if telegram_bot.is_running:
-        log.info("Telegram Bot 已启动")
+    try:
+        await telegram_bot.start()
+        if telegram_bot.is_running:
+            log.info("Telegram Bot 已启动")
+    except Exception as e:
+        log.warning(f"Telegram Bot 启动失败，已跳过: {e}")
     
     yield
     
