@@ -5,6 +5,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+from concurrent.futures import ProcessPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -19,7 +20,7 @@ from app.utils.logger import log
 from app.config import settings
 from app.core.metadata.comic_parser import ComicParser
 from app.core.metadata.txt_parser import TxtParser
-from app.core.metadata.mobi_parser import MobiParser
+from app.core.metadata.mobi_parser import MobiParser, extract_text_in_subprocess
 from io import BytesIO
 import hashlib
 
@@ -28,11 +29,17 @@ router = APIRouter()
 # 实例化全局解析器
 txt_parser = TxtParser()
 mobi_parser = MobiParser()
+mobi_process_pool = ProcessPoolExecutor(max_workers=1)
 
 # 大文件阈值：500KB
 LARGE_FILE_THRESHOLD = 500 * 1024
 # 每页字符数
 CHARS_PER_PAGE = 50000
+
+# MOBI 提取上限，防止异常文件导致崩溃/内存暴涨
+MOBI_MAX_TEXT_CHARS = 5_000_000
+MOBI_MAX_FILE_BYTES = 200 * 1024 * 1024
+MOBI_MAX_HTML_BYTES = 2 * 1024 * 1024
 
 
 @router.get("/books/{book_id}/toc")
@@ -217,12 +224,17 @@ async def _get_mobi_text(file_path: Path) -> Optional[str]:
             
         # 提取文本
         log.info(f"提取MOBI文本: {file_path.name}")
-        # 在线程池中运行提取，避免阻塞异步循环
+        # 在子进程中运行提取，避免异常文件导致主进程崩溃
         import asyncio
-        from concurrent.futures import ThreadPoolExecutor
-        
         loop = asyncio.get_event_loop()
-        content = await loop.run_in_executor(None, mobi_parser.extract_text, file_path)
+        content = await loop.run_in_executor(
+            mobi_process_pool,
+            extract_text_in_subprocess,
+            str(file_path),
+            MOBI_MAX_TEXT_CHARS,
+            MOBI_MAX_FILE_BYTES,
+            MOBI_MAX_HTML_BYTES
+        )
         
         if content and content.strip():
             # 清理内容

@@ -186,7 +186,13 @@ class MobiParser:
             log.warning(f"提取MOBI封面失败: {file_path}, 错误: {e}")
             return None
 
-    def extract_text(self, file_path: Path) -> Optional[str]:
+    def extract_text(
+        self,
+        file_path: Path,
+        max_chars: int = 5_000_000,
+        max_file_bytes: int = 200 * 1024 * 1024,
+        max_html_bytes: int = 2 * 1024 * 1024
+    ) -> Optional[str]:
         """
         从MOBI/AZW3文件中提取纯文本内容
         """
@@ -194,13 +200,61 @@ class MobiParser:
             import mobi
             from bs4 import BeautifulSoup
             
+            file_path = Path(file_path)
+            try:
+                file_size = file_path.stat().st_size
+                if file_size > max_file_bytes:
+                    log.warning(
+                        f"MOBI文件过大，跳过提取: {file_path.name}, "
+                        f"{file_size / 1024 / 1024:.2f} MB"
+                    )
+                    return None
+            except Exception as e:
+                log.warning(f"读取MOBI文件大小失败: {file_path}, 错误: {e}")
+
             log.info(f"开始提取MOBI文本: {file_path}")
             
             # 解压
             # mobi.extract 返回 (tempdir, filepath)
             tempdir, filepath = mobi.extract(str(file_path))
-            content = ""
+            content_parts = []
             html_files = []
+            total_chars = 0
+            truncated = False
+
+            def append_text(text: str) -> bool:
+                nonlocal total_chars, truncated
+                if not text:
+                    return True
+                text = text.strip()
+                if not text:
+                    return True
+
+                remaining = max_chars - total_chars if max_chars else None
+                if remaining is not None and remaining <= 0:
+                    truncated = True
+                    return False
+
+                if remaining is not None and len(text) > remaining:
+                    content_parts.append(text[:remaining])
+                    total_chars = max_chars
+                    truncated = True
+                    return False
+
+                content_parts.append(text)
+                total_chars += len(text)
+                return True
+
+            def read_text_file(path: str) -> str:
+                try:
+                    size = os.path.getsize(path)
+                    if max_html_bytes and size > max_html_bytes:
+                        log.warning(f"HTML文件过大，截断读取: {path}")
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        return f.read(max_html_bytes) if max_html_bytes else f.read()
+                except Exception as e:
+                    log.warning(f"读取HTML文件失败 {path}: {e}")
+                    return ""
             
             log.debug(f"MOBI解压目录: {tempdir}, 主文件路径: {filepath}")
             
@@ -209,17 +263,19 @@ class MobiParser:
                 if filepath and os.path.isfile(filepath):
                     log.debug(f"尝试读取主文件: {filepath}")
                     try:
-                        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                            raw_content = f.read()
-                            if raw_content.strip():
-                                soup = BeautifulSoup(raw_content, 'html.parser')
-                                content = soup.get_text(separator='\n')
-                                log.debug(f"从主文件提取到 {len(content)} 字符")
+                        raw_content = read_text_file(filepath)
+                        if raw_content.strip():
+                            soup = BeautifulSoup(raw_content, 'html.parser')
+                            text = soup.get_text(separator='\n')
+                            if append_text(text):
+                                log.debug(f"从主文件提取到 {len(text)} 字符")
+                            else:
+                                log.warning(f"MOBI文本过长，已截断: {file_path.name}")
                     except Exception as e:
                         log.warning(f"读取主文件失败: {e}")
                 
                 # 方法2: 如果主文件为空或不存在，扫描所有HTML文件
-                if not content.strip():
+                if total_chars == 0:
                     log.debug("主文件为空，扫描目录中的HTML文件")
                     for root, dirs, files in os.walk(tempdir):
                         for file in sorted(files):  # 排序保证顺序
@@ -229,30 +285,26 @@ class MobiParser:
                     
                     log.debug(f"找到 {len(html_files)} 个HTML文件")
                     
-                    # 读取并合并所有HTML内容
-                    all_text_parts = []
                     for html_path in html_files:
-                        try:
-                            with open(html_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                soup = BeautifulSoup(f.read(), 'html.parser')
-                                
-                                # 移除script和style标签
-                                for script in soup(['script', 'style', 'head']):
-                                    script.decompose()
-                                
-                                text = soup.get_text(separator='\n')
-                                if text.strip():
-                                    all_text_parts.append(text.strip())
-                        except Exception as e:
-                            log.warning(f"读取HTML文件失败 {html_path}: {e}")
+                        raw_html = read_text_file(html_path)
+                        if not raw_html:
                             continue
-                    
-                    if all_text_parts:
-                        content = '\n\n'.join(all_text_parts)
-                        log.debug(f"从 {len(all_text_parts)} 个HTML文件合并提取到 {len(content)} 字符")
+                        soup = BeautifulSoup(raw_html, 'html.parser')
+
+                        # 移除script和style标签
+                        for script in soup(['script', 'style', 'head']):
+                            script.decompose()
+
+                        text = soup.get_text(separator='\n')
+                        if not append_text(text):
+                            log.warning(f"MOBI文本过长，已截断: {file_path.name}")
+                            break
+
+                    if content_parts:
+                        log.debug(f"从 {len(content_parts)} 段HTML内容合并提取到 {total_chars} 字符")
                 
                 # 方法3: 查找纯文本文件
-                if not content.strip():
+                if total_chars == 0:
                     log.debug("尝试查找纯文本文件")
                     for root, dirs, files in os.walk(tempdir):
                         for file in files:
@@ -260,21 +312,25 @@ class MobiParser:
                                 txt_path = os.path.join(root, file)
                                 try:
                                     with open(txt_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                        text = f.read()
-                                        if text.strip():
-                                            content = text
-                                            log.debug(f"从TXT文件提取到 {len(content)} 字符")
-                                            break
+                                        text = f.read(max_chars if max_chars else None)
+                                        if append_text(text):
+                                            log.debug(f"从TXT文件提取到 {len(text)} 字符")
+                                        else:
+                                            log.warning(f"MOBI文本过长，已截断: {file_path.name}")
+                                        break
                                 except:
                                     continue
-                        if content.strip():
+                        if content_parts:
                             break
                 
             finally:
                 # 清理临时文件
                 shutil.rmtree(tempdir, ignore_errors=True)
             
-            if content.strip():
+            if content_parts:
+                content = '\n\n'.join(content_parts).strip()
+                if truncated:
+                    content = f"{content}\n\n[内容过长，已截断]"
                 log.info(f"成功提取MOBI文本: {file_path.name}, 共 {len(content)} 字符")
                 return content
             else:
@@ -287,3 +343,19 @@ class MobiParser:
         except Exception as e:
             log.error(f"提取MOBI文本失败: {file_path}, 错误: {e}", exc_info=True)
             return None
+
+
+def extract_text_in_subprocess(
+    file_path: str,
+    max_chars: int = 5_000_000,
+    max_file_bytes: int = 200 * 1024 * 1024,
+    max_html_bytes: int = 2 * 1024 * 1024
+) -> Optional[str]:
+    """在子进程中提取MOBI文本，避免主进程崩溃"""
+    parser = MobiParser()
+    return parser.extract_text(
+        Path(file_path),
+        max_chars=max_chars,
+        max_file_bytes=max_file_bytes,
+        max_html_bytes=max_html_bytes
+    )
