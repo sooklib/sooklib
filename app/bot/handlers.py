@@ -667,7 +667,7 @@ async def _send_book_info(update: Update, telegram_id: str, book_id: int, is_cal
                 .options(joinedload(Book.author), joinedload(Book.versions))
                 .where(Book.id == book_id)
             )
-            book = result.scalar_one_or_none()
+            book = result.unique().scalar_one_or_none()
             if not book:
                 msg = "❌ 书籍不存在"
                 if is_callback:
@@ -835,7 +835,7 @@ async def _perform_favorites(update: Update, telegram_id: str, page: int, is_cal
                 .where(Favorite.user_id == user.id)
                 .order_by(Favorite.created_at.desc())
             )
-            favorites = result.all()
+            favorites = result.unique().all()
             filtered = []
             for favorite, book in favorites:
                 if await check_book_access(user, book.id, db):
