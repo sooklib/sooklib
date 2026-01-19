@@ -268,9 +268,7 @@ function PatternsTabContent() {
     
     try {
       setAnalyzing(true)
-      const response = await api.post(`/api/admin/ai/patterns/analyze-library/${selectedLibraryId}`, null, {
-        params: { use_ai: true }
-      })
+      const response = await api.post(`/api/admin/ai/patterns/batch-analyze-library/${selectedLibraryId}`)
       setAnalysisResult(response.data)
     } catch (err: any) {
       const detail = err.response?.data?.detail
