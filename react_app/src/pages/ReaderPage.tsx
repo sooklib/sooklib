@@ -731,7 +731,11 @@ export default function ReaderPage() {
   }
 
   const openConvertedEpub = async (epubUrl?: string) => {
-    const url = epubUrl || `/api/books/${id}/converted?format=epub`
+    const baseUrl = epubUrl || `/api/books/${id}/converted?format=epub`
+    const urlToken = token || getStoredToken()
+    const url = urlToken
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(urlToken)}`
+      : baseUrl
     if (epubBook) {
       epubBook.destroy()
     }

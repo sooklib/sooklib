@@ -17,6 +17,8 @@ from app.database import get_db
 from app.models import Book, User, BookVersion
 from app.web.routes.auth import get_current_user
 from app.web.routes.dependencies import get_accessible_book
+from app.security import decode_access_token
+from app.utils.permissions import check_book_access
 from app.utils.logger import log
 from app.config import settings
 from app.core.metadata.comic_parser import ComicParser
@@ -585,14 +587,28 @@ async def get_convert_status(
 
 @router.get("/books/{book_id}/converted")
 async def get_converted_book(
+    book_id: int,
     target_format: str = Query("epub", description="目标格式"),
-    book: Book = Depends(get_accessible_book),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    token: Optional[str] = Query(None, description="JWT Token（可选）"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     获取转换后的文件
     """
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="需要认证，请提供 token")
+
+    current_user = await _get_user_from_token(token, db)
+    book = await db.get(Book, book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="书籍不存在")
+
+    if not await check_book_access(current_user, book_id, db):
+        raise HTTPException(status_code=403, detail="无权访问此书籍")
+
     await db.refresh(book, ['versions'])
     version = await _get_valid_version(book)
     file_path = Path(version.file_path)
@@ -1157,3 +1173,30 @@ async def _get_valid_version(book: Book) -> BookVersion:
             
     # 3. 找不到有效文件
     raise HTTPException(status_code=404, detail="书籍文件不存在")
+
+
+async def _get_user_from_token(
+    token: str,
+    db: AsyncSession
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="无法验证凭据",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    payload = decode_access_token(token)
+    if payload is None:
+        raise credentials_exception
+
+    username: str = payload.get("sub")
+    if not username:
+        raise credentials_exception
+
+    result = await db.execute(
+        select(User).where(User.username == username)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise credentials_exception
+
+    return user
