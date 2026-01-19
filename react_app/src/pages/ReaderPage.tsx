@@ -750,7 +750,7 @@ export default function ReaderPage() {
     setErrorDetail(null)
     setFormat('epub')
     try {
-      await loadEpub(url)
+      await loadEpub(url, true)
       setConvertStatus('success')
       setConvertProgress(1)
       setConvertPromptOpen(false)
@@ -1238,15 +1238,21 @@ export default function ReaderPage() {
     }
   }
 
-  const loadEpub = async (customUrl?: string) => {
+  const loadEpub = async (customUrl?: string, preferBinary: boolean = false) => {
     try {
       const epubUrl = customUrl || `/api/books/${id}/content`
-      const headerToken = token || getStoredToken()
-      const requestHeaders = headerToken ? { 'Authorization': `Bearer ${headerToken}` } : undefined
-      
-      const book = ePub(epubUrl, {
-        requestHeaders
-      })
+      let book: Book
+
+      if (preferBinary) {
+        const response = await api.get<ArrayBuffer>(epubUrl, { responseType: 'arraybuffer' })
+        book = ePub(response.data)
+      } else {
+        const headerToken = token || getStoredToken()
+        const requestHeaders = headerToken ? { 'Authorization': `Bearer ${headerToken}` } : undefined
+        book = ePub(epubUrl, {
+          requestHeaders
+        })
+      }
 
       book.on('openFailed', (err: any) => {
         console.error('EPUB 打开失败:', err)
