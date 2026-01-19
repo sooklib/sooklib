@@ -1441,8 +1441,8 @@ async def list_backups(
 async def download_backup(
     backup_id: str,
     token: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     下载备份文件（管理员）
@@ -1455,16 +1455,20 @@ async def download_backup(
     from pathlib import Path
     
     # 验证权限
-    user = current_user
-    if not user and token:
-        try:
-            payload = decode_access_token(token)
-            username = payload.get("sub")
-            if username:
-                result = await db.execute(select(User).where(User.username == username))
-                user = result.scalar_one_or_none()
-        except Exception:
-            pass
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = None
+    try:
+        payload = decode_access_token(token)
+        username = payload.get("sub") if payload else None
+        if username:
+            result = await db.execute(select(User).where(User.username == username))
+            user = result.scalar_one_or_none()
+    except Exception:
+        user = None
             
     if not user or not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
