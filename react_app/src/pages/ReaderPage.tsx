@@ -13,7 +13,7 @@ import {
   Delete, Add, Search, Close, Edit, FormatColorFill, Download,
   ZoomIn, ZoomOut, RestartAlt, FilterList, Sort, Check, Comment
 } from '@mui/icons-material'
-import { FixedSizeList as VirtualList, ListChildComponentProps } from 'react-window'
+import { FixedSizeList as VirtualList, ListChildComponentProps, ListOnItemsRenderedProps } from 'react-window'
 import ePub, { Book, Rendition } from 'epubjs'
 import api, { readingStatsApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -135,6 +135,8 @@ const themes = {
   pink: { bg: '#fff5f5', text: '#5c4444', name: '粉嫩' },
 }
 
+const TOC_PAGE_SIZE = 100
+
 export default function ReaderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -205,6 +207,7 @@ export default function ReaderPage() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [tocKeyword, setTocKeyword] = useState('')
   const [tocListHeight, setTocListHeight] = useState(520)
+  const [tocVisibleCount, setTocVisibleCount] = useState(TOC_PAGE_SIZE)
   
   // 书签
   const [bookmarks, setBookmarks] = useState<BookmarkInfo[]>([])
@@ -447,6 +450,10 @@ export default function ReaderPage() {
     window.addEventListener('resize', updateTocHeight)
     return () => window.removeEventListener('resize', updateTocHeight)
   }, [isMobile])
+
+  useEffect(() => {
+    setTocVisibleCount(TOC_PAGE_SIZE)
+  }, [id])
 
   // 加载书籍信息
   useEffect(() => {
@@ -790,6 +797,29 @@ export default function ReaderPage() {
     }
     return epubToc.filter((item) => item.label.toLowerCase().includes(keyword))
   }, [epubToc, tocKeyword])
+
+  const visibleChapterIndices = useMemo(() => {
+    const keyword = tocKeyword.trim()
+    if (keyword) {
+      return filteredChapterIndices
+    }
+    return filteredChapterIndices.slice(0, tocVisibleCount)
+  }, [filteredChapterIndices, tocKeyword, tocVisibleCount])
+
+  const canLoadMoreToc = useMemo(() => {
+    const keyword = tocKeyword.trim()
+    if (keyword) {
+      return false
+    }
+    return visibleChapterIndices.length < filteredChapterIndices.length
+  }, [filteredChapterIndices.length, tocKeyword, visibleChapterIndices.length])
+
+  const handleTocItemsRendered = useCallback((info: ListOnItemsRenderedProps) => {
+    if (!canLoadMoreToc) return
+    if (info.visibleStopIndex >= visibleChapterIndices.length - 1) {
+      setTocVisibleCount((prev) => Math.min(prev + TOC_PAGE_SIZE, filteredChapterIndices.length))
+    }
+  }, [canLoadMoreToc, visibleChapterIndices.length, filteredChapterIndices.length])
 
   // 当 pendingJump 变化且 loadedChapters 加载完成后执行跳转
   useEffect(() => {
@@ -2154,6 +2184,13 @@ export default function ReaderPage() {
               }}
             />
           </Box>
+          {!isEpub && filteredChapterIndices.length > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              {tocKeyword.trim()
+                ? `匹配 ${filteredChapterIndices.length} 章`
+                : `已加载 ${visibleChapterIndices.length}/${filteredChapterIndices.length} 章`}
+            </Typography>
+          )}
           {!isEpub && totalChapters === 0 ? (
             <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
               <Typography variant="body2">未识别到目录</Typography>
@@ -2186,14 +2223,15 @@ export default function ReaderPage() {
             <VirtualList
               height={tocListHeight}
               width="100%"
-              itemCount={filteredChapterIndices.length}
+              itemCount={visibleChapterIndices.length}
               itemSize={44}
               itemData={{
-                items: filteredChapterIndices,
+                items: visibleChapterIndices,
                 chapters,
                 currentChapter,
                 onSelect: goToChapter
               }}
+              onItemsRendered={handleTocItemsRendered}
             >
               {TocRow}
             </VirtualList>
