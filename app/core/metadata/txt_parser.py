@@ -118,7 +118,7 @@ class TxtParser:
                 'utf-8', 'utf-8-sig',
                 'gb18030', 'gbk', 'gb2312',
                 'big5',
-                'utf-16', 'utf-16-le', 'utf-16-be',
+                'utf-16-le', 'utf-16-be',
             ]
             try:
                 with open(file_path, 'rb') as f:
@@ -126,6 +126,14 @@ class TxtParser:
             except Exception as e:
                 log.error(f"读取编码检测样本失败: {e}")
                 return None
+
+            bom_encoding = None
+            if raw_data.startswith(b'\xff\xfe'):
+                bom_encoding = 'utf-16-le'
+            elif raw_data.startswith(b'\xfe\xff'):
+                bom_encoding = 'utf-16-be'
+            if bom_encoding:
+                return bom_encoding
 
             best_encoding = None
             best_score = None
@@ -143,7 +151,26 @@ class TxtParser:
                 return best_encoding
 
             result = chardet.detect(raw_data)
-            return result.get('encoding')
+            detected = result.get('encoding')
+            if not detected:
+                return None
+
+            detected_lower = detected.lower()
+            if detected_lower in ('utf-16', 'utf_16'):
+                even_nulls = sum(1 for i in range(0, len(raw_data), 2) if raw_data[i] == 0)
+                odd_nulls = sum(1 for i in range(1, len(raw_data), 2) if raw_data[i] == 0)
+                if odd_nulls > even_nulls:
+                    return 'utf-16-le'
+                if even_nulls > odd_nulls:
+                    return 'utf-16-be'
+                return None
+
+            if detected_lower in ('utf-16le', 'utf_16le'):
+                return 'utf-16-le'
+            if detected_lower in ('utf-16be', 'utf_16be'):
+                return 'utf-16-be'
+
+            return detected
 
         encoding = choose_encoding()
         if not encoding:
@@ -179,7 +206,14 @@ class TxtParser:
         if not sample:
             return False
 
+        if sample.startswith(b'\xff\xfe') or sample.startswith(b'\xfe\xff'):
+            return False
+
         if b'\x00' in sample:
+            even_nulls = sum(1 for i in range(0, len(sample), 2) if sample[i] == 0)
+            odd_nulls = sum(1 for i in range(1, len(sample), 2) if sample[i] == 0)
+            if max(even_nulls, odd_nulls) / max(1, len(sample) // 2) > 0.6:
+                return False
             return True
 
         control_bytes = 0
