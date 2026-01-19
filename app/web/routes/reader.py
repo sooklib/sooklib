@@ -708,62 +708,120 @@ def _parse_chapters(content: str) -> list:
     """
     import re
     
-    chapters = []
-    
-    # 常见的章节标题模式
-    chapter_patterns = [
-        # 第X章、第X节、第X回
-        r'^第[零一二三四五六七八九十百千万\d]+[章节回卷集部篇].*?$',
-        # Chapter X
-        r'^Chapter\s+\d+.*?$',
-        # 数字章节 001、1.
-        r'^\d{1,4}[\.、].*?$',
-        # 序章、楔子、引子、前言、后记等
-        r'^(序[章言]|楔子|引子|前言|后记|尾声|番外|终章|大结局).*?$',
-        # 卷X
-        r'^卷[零一二三四五六七八九十百千万\d]+.*?$',
+    max_title_len = 50
+    min_gap = 40
+    strong_patterns = [
+        r'^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+        r'^(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+        r'^Chapter\s+\d+.*$',
+        r'^卷[零一二三四五六七八九十百千万亿\d]+.*$',
+        r'^(序章|楔子|引子|前言|后记|尾声|番外|终章|大结局).*$',
+        r'^[【\[\(].+[】\]\)]$',
     ]
-    
-    # 合并所有模式
-    combined_pattern = '|'.join(f'({p})' for p in chapter_patterns)
-    
-    # 查找所有章节标题
-    matches = list(re.finditer(combined_pattern, content, re.MULTILINE | re.IGNORECASE))
-    
-    if not matches:
-        # 如果没有找到章节，将整个内容作为一个章节
-        chapters.append({
+    weak_patterns = [
+        r'^\d{1,4}[\.、]\s*.*$',
+        r'^\d{1,4}\s+.*$',
+    ]
+    inline_strong = re.compile(
+        r'(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回][^\n]{0,40}',
+        re.IGNORECASE
+    )
+
+    lines = content.split('\n')
+    offsets = []
+    pos = 0
+    for line in lines:
+        offsets.append(pos)
+        pos += len(line) + 1
+
+    candidates = []
+    strong_regexes = [re.compile(p, re.IGNORECASE) for p in strong_patterns]
+    weak_regexes = [re.compile(p, re.IGNORECASE) for p in weak_patterns]
+
+    for i, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        prev_blank = i == 0 or not lines[i - 1].strip()
+        next_blank = i == len(lines) - 1 or not lines[i + 1].strip()
+        has_blank_neighbor = prev_blank or next_blank
+
+        found = False
+        is_body_only = line in ('正文', '正文：', '正文:')
+
+        if len(line) <= max_title_len:
+            for pattern in strong_regexes:
+                if pattern.match(line):
+                    candidates.append({
+                        "title": line,
+                        "startOffset": offsets[i],
+                        "strength": 3,
+                        "is_body_only": is_body_only
+                    })
+                    found = True
+                    break
+
+        if not found and len(line) <= max_title_len and has_blank_neighbor:
+            for pattern in weak_regexes:
+                if pattern.match(line):
+                    candidates.append({
+                        "title": line,
+                        "startOffset": offsets[i],
+                        "strength": 1,
+                        "is_body_only": is_body_only
+                    })
+                    found = True
+                    break
+
+        if not found:
+            match = inline_strong.search(line)
+            if match:
+                title = match.group().strip()
+                if len(title) <= max_title_len:
+                    candidates.append({
+                        "title": title,
+                        "startOffset": offsets[i] + match.start(),
+                        "strength": 2,
+                        "is_body_only": False
+                    })
+
+    candidates.sort(key=lambda x: x["startOffset"])
+    filtered = []
+    for cand in candidates:
+        if filtered and cand["startOffset"] - filtered[-1]["startOffset"] <= min_gap:
+            if cand["strength"] > filtered[-1]["strength"]:
+                filtered[-1] = cand
+            continue
+        filtered.append(cand)
+
+    if any(not c.get("is_body_only") for c in filtered):
+        filtered = [c for c in filtered if not c.get("is_body_only")]
+
+    chapters = []
+    total_len = len(content)
+    if not filtered:
+        return [{
             "title": "全文",
             "startOffset": 0,
-            "endOffset": len(content)
-        })
-        return chapters
-    
-    # 根据匹配结果构建章节列表
-    for i, match in enumerate(matches):
-        title = match.group().strip()
-        start_offset = match.start()
-        
-        # 结束位置是下一章的开始或文件末尾
-        if i + 1 < len(matches):
-            end_offset = matches[i + 1].start()
-        else:
-            end_offset = len(content)
-        
+            "endOffset": total_len
+        }]
+
+    for i, match in enumerate(filtered):
+        end_offset = filtered[i + 1]["startOffset"] if i < len(filtered) - 1 else total_len
         chapters.append({
-            "title": title,
-            "startOffset": start_offset,
+            "title": match["title"],
+            "startOffset": match["startOffset"],
             "endOffset": end_offset
         })
-    
-    # 如果第一章不是从文件开头开始，添加一个"序"章节
-    if matches and matches[0].start() > 100:  # 超过100字符才添加
+
+    if filtered and filtered[0]["startOffset"] > 100:
         chapters.insert(0, {
             "title": "序",
             "startOffset": 0,
-            "endOffset": matches[0].start()
+            "endOffset": filtered[0]["startOffset"]
         })
-    
+
     return chapters
 
 

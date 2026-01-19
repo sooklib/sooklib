@@ -124,55 +124,120 @@ class TxtParser:
 
     def _parse_chapters(self, content: str) -> List[Dict]:
         """解析章节列表"""
-        chapter_patterns = [
-            # 允许缩进
-            r'^\s*第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
-            r'^\s*Chapter\s+\d+.*$',
-            r'^\s*卷[零一二三四五六七八九十百千\d]+.*$',
-            r'^\s*[【\[\(].+[】\]\)]$',
-            r'^\s*\d+\s+.*$',
-            r'^\s*(序章|前言|后记|番外|尾声|楔子).*$',
+        max_title_len = 50
+        min_gap = 40
+        strong_patterns = [
+            r'^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+            r'^(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+            r'^Chapter\s+\d+.*$',
+            r'^卷[零一二三四五六七八九十百千万亿\d]+.*$',
+            r'^(序章|楔子|引子|前言|后记|尾声|番外|终章|大结局).*$',
+            r'^[【\[\(].+[】\]\)]$',
         ]
-        
-        matches = []
-        for pattern in chapter_patterns:
-            for match in re.finditer(pattern, content, re.MULTILINE):
-                matches.append({
-                    "title": match.group().strip(),
-                    "startOffset": match.start()
-                })
-        
-        # 排序并去重
-        matches.sort(key=lambda x: x["startOffset"])
-        
-        unique_matches = []
-        if matches:
-            unique_matches.append(matches[0])
-            for i in range(1, len(matches)):
-                # 如果距离太近，可能是重复匹配或错误匹配
-                if matches[i]["startOffset"] - unique_matches[-1]["startOffset"] > 50:
-                    unique_matches.append(matches[i])
-        
-        # 计算结束位置
+        weak_patterns = [
+            r'^\d{1,4}[\.、]\s*.*$',
+            r'^\d{1,4}\s+.*$',
+        ]
+        inline_strong = re.compile(
+            r'(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回][^\n]{0,40}',
+            re.IGNORECASE
+        )
+
+        lines = content.split('\n')
+        offsets = []
+        pos = 0
+        for line in lines:
+            offsets.append(pos)
+            pos += len(line) + 1
+
+        candidates = []
+        strong_regexes = [re.compile(p, re.IGNORECASE) for p in strong_patterns]
+        weak_regexes = [re.compile(p, re.IGNORECASE) for p in weak_patterns]
+
+        for i, raw_line in enumerate(lines):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            prev_blank = i == 0 or not lines[i - 1].strip()
+            next_blank = i == len(lines) - 1 or not lines[i + 1].strip()
+            has_blank_neighbor = prev_blank or next_blank
+
+            found = False
+            is_body_only = line in ('正文', '正文：', '正文:')
+
+            if len(line) <= max_title_len:
+                for pattern in strong_regexes:
+                    if pattern.match(line):
+                        candidates.append({
+                            "title": line,
+                            "startOffset": offsets[i],
+                            "strength": 3,
+                            "is_body_only": is_body_only
+                        })
+                        found = True
+                        break
+
+            if not found and len(line) <= max_title_len and has_blank_neighbor:
+                for pattern in weak_regexes:
+                    if pattern.match(line):
+                        candidates.append({
+                            "title": line,
+                            "startOffset": offsets[i],
+                            "strength": 1,
+                            "is_body_only": is_body_only
+                        })
+                        found = True
+                        break
+
+            if not found:
+                match = inline_strong.search(line)
+                if match:
+                    title = match.group().strip()
+                    if len(title) <= max_title_len:
+                        candidates.append({
+                            "title": title,
+                            "startOffset": offsets[i] + match.start(),
+                            "strength": 2,
+                            "is_body_only": False
+                        })
+
+        candidates.sort(key=lambda x: x["startOffset"])
+        filtered = []
+        for cand in candidates:
+            if filtered and cand["startOffset"] - filtered[-1]["startOffset"] <= min_gap:
+                if cand["strength"] > filtered[-1]["strength"]:
+                    filtered[-1] = cand
+                continue
+            filtered.append(cand)
+
+        if any(not c.get("is_body_only") for c in filtered):
+            filtered = [c for c in filtered if not c.get("is_body_only")]
+
         chapters = []
         total_len = len(content)
-        
-        for i, match in enumerate(unique_matches):
-            end_offset = unique_matches[i+1]["startOffset"] if i < len(unique_matches) - 1 else total_len
+        if not filtered:
+            return [{
+                "title": "全文",
+                "startOffset": 0,
+                "endOffset": total_len
+            }]
+
+        for i, match in enumerate(filtered):
+            end_offset = filtered[i + 1]["startOffset"] if i < len(filtered) - 1 else total_len
             chapters.append({
                 "title": match["title"],
                 "startOffset": match["startOffset"],
                 "endOffset": end_offset
             })
-            
-        # 如果没有章节，添加全文
-        if not chapters:
-            chapters.append({
-                "title": "全文",
+
+        if filtered and filtered[0]["startOffset"] > 100:
+            chapters.insert(0, {
+                "title": "序",
                 "startOffset": 0,
-                "endOffset": total_len
+                "endOffset": filtered[0]["startOffset"]
             })
-            
+
         return chapters
 
     async def load_custom_patterns(self):
