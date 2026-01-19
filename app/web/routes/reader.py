@@ -41,6 +41,7 @@ MOBI_MAX_FILE_BYTES = 200 * 1024 * 1024
 MOBI_MAX_HTML_BYTES = 2 * 1024 * 1024
 MOBI_EXTRACT_TIMEOUT_SECONDS = 30
 MOBI_EXTRACT_MEMORY_LIMIT_MB = 512
+MOBI_TEXT_LENGTH_LIMIT = 5_000_000
 
 
 @router.get("/books/{book_id}/toc")
@@ -218,6 +219,19 @@ async def _get_mobi_text(file_path: Path) -> Optional[str]:
             log.warning(f"MOBI提取已标记失败，跳过: {file_path.name}")
             return None
 
+        # 预估文本长度，疑似超大则直接拒绝（防止 zip bomb）
+        estimated_length = _estimate_mobi_text_length(file_path)
+        if estimated_length and estimated_length > MOBI_TEXT_LENGTH_LIMIT:
+            log.warning(
+                f"MOBI文本长度过大，拒绝提取: {file_path.name}, "
+                f"estimate={estimated_length}"
+            )
+            try:
+                fail_marker.touch(exist_ok=True)
+            except Exception:
+                pass
+            return None
+
         # 检查缓存
         if cache_path.exists():
             log.debug(f"使用MOBI文本缓存: {file_path.name}")
@@ -269,6 +283,23 @@ async def _get_mobi_text(file_path: Path) -> Optional[str]:
             fail_marker.touch(exist_ok=True)
         except Exception:
             pass
+        return None
+
+
+def _estimate_mobi_text_length(file_path: Path) -> Optional[int]:
+    """快速估算 MOBI 文本长度，避免异常压缩导致资源耗尽"""
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
+        if len(header) < 12:
+            return None
+        text_length = int.from_bytes(header[4:8], 'big')
+        record_count = int.from_bytes(header[8:10], 'big')
+        record_size = int.from_bytes(header[10:12], 'big')
+        estimated = max(text_length, record_count * record_size)
+        return estimated if estimated > 0 else None
+    except Exception as e:
+        log.debug(f"估算MOBI文本长度失败: {file_path}, 错误: {e}")
         return None
 
 
