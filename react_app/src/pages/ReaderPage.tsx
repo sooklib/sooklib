@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, IconButton, Drawer, List, ListItem, ListItemButton,
@@ -13,6 +13,7 @@ import {
   Delete, Add, Search, Close, Edit, FormatColorFill, Download,
   ZoomIn, ZoomOut, RestartAlt, FilterList, Sort, Check, Comment
 } from '@mui/icons-material'
+import { FixedSizeList as VirtualList, ListChildComponentProps } from 'react-window'
 import ePub, { Book, Rendition } from 'epubjs'
 import api, { readingStatsApi } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -106,6 +107,13 @@ interface ComicImage {
   size: number
 }
 
+type TocRowData = {
+  items: number[]
+  chapters: TocChapter[]
+  currentChapter: number
+  onSelect: (index: number) => void
+}
+
 // 高亮颜色配置 (增加透明度以适应深色模式)
 const highlightColors = {
   yellow: { bg: 'rgba(255, 235, 59, 0.5)', name: '黄色' },
@@ -195,6 +203,8 @@ export default function ReaderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [bookmarksOpen, setBookmarksOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [tocKeyword, setTocKeyword] = useState('')
+  const [tocListHeight, setTocListHeight] = useState(520)
   
   // 书签
   const [bookmarks, setBookmarks] = useState<BookmarkInfo[]>([])
@@ -427,6 +437,16 @@ export default function ReaderPage() {
       }
     }
   })
+
+  useEffect(() => {
+    const updateTocHeight = () => {
+      const reserved = isMobile ? 180 : 160
+      setTocListHeight(Math.max(240, window.innerHeight - reserved))
+    }
+    updateTocHeight()
+    window.addEventListener('resize', updateTocHeight)
+    return () => window.removeEventListener('resize', updateTocHeight)
+  }, [isMobile])
 
   // 加载书籍信息
   useEffect(() => {
@@ -748,6 +768,28 @@ export default function ReaderPage() {
       console.error('加载目录失败:', err)
     }
   }
+
+  const filteredChapterIndices = useMemo(() => {
+    const keyword = tocKeyword.trim().toLowerCase()
+    if (!keyword) {
+      return chapters.map((_, idx) => idx)
+    }
+    const result: number[] = []
+    chapters.forEach((chapter, idx) => {
+      if (chapter.title.toLowerCase().includes(keyword)) {
+        result.push(idx)
+      }
+    })
+    return result
+  }, [chapters, tocKeyword])
+
+  const filteredEpubToc = useMemo(() => {
+    const keyword = tocKeyword.trim().toLowerCase()
+    if (!keyword) {
+      return epubToc
+    }
+    return epubToc.filter((item) => item.label.toLowerCase().includes(keyword))
+  }, [epubToc, tocKeyword])
 
   // 当 pendingJump 变化且 loadedChapters 加载完成后执行跳转
   useEffect(() => {
@@ -1141,6 +1183,26 @@ export default function ReaderPage() {
     if (epubRendition) {
       epubRendition.display(href)
     }
+  }
+
+  const TocRow = ({ index, style, data }: ListChildComponentProps<TocRowData>) => {
+    const chapterIndex = data.items[index]
+    const chapter = data.chapters[chapterIndex]
+    if (!chapter) return null
+
+    return (
+      <ListItem style={style} disablePadding>
+        <ListItemButton
+          selected={chapterIndex === data.currentChapter}
+          onClick={() => data.onSelect(chapterIndex)}
+        >
+          <ListItemText
+            primary={chapter.title}
+            primaryTypographyProps={{ noWrap: true, fontSize: 14 }}
+          />
+        </ListItemButton>
+      </ListItem>
+    )
   }
 
   // 批注功能
@@ -2069,40 +2131,73 @@ export default function ReaderPage() {
               </IconButton>
             )}
           </Box>
-          <List sx={{ maxHeight: 'calc(100vh - 100px)', overflow: 'auto' }}>
-            {totalChapters === 0 && !isEpub && (
+          <Box sx={{ mb: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="搜索章节..."
+              value={tocKeyword}
+              onChange={(e) => setTocKeyword(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: tocKeyword && (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setTocKeyword('')}>
+                      <Close fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                )
+              }}
+            />
+          </Box>
+          {!isEpub && totalChapters === 0 ? (
+            <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
+              <Typography variant="body2">未识别到目录</Typography>
+              <Typography variant="caption">可能是短篇小说或格式不支持</Typography>
+            </Box>
+          ) : isEpub ? (
+            filteredEpubToc.length === 0 ? (
               <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
-                <Typography variant="body2">未识别到目录</Typography>
-                <Typography variant="caption">可能是短篇小说或格式不支持</Typography>
+                <Typography variant="body2">未找到匹配章节</Typography>
               </Box>
-            )}
-            {isEpub ? (
-              epubToc.map((item, index) => (
-                <ListItem key={index} disablePadding>
-                  <ListItemButton onClick={() => goToEpubChapter(item.href)}>
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{ noWrap: true, fontSize: 14 }}
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))
             ) : (
-              chapters.map((chapter, index) => (
-                <ListItem key={index} disablePadding>
-                  <ListItemButton
-                    selected={index === currentChapter}
-                    onClick={() => goToChapter(index)}
-                  >
-                    <ListItemText
-                      primary={chapter.title}
-                      primaryTypographyProps={{ noWrap: true, fontSize: 14 }}
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))
-            )}
-          </List>
+              <List sx={{ maxHeight: 'calc(100vh - 160px)', overflow: 'auto' }}>
+                {filteredEpubToc.map((item, index) => (
+                  <ListItem key={`${item.href}-${index}`} disablePadding>
+                    <ListItemButton onClick={() => goToEpubChapter(item.href)}>
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{ noWrap: true, fontSize: 14 }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                ))}
+              </List>
+            )
+          ) : filteredChapterIndices.length === 0 ? (
+            <Box sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
+              <Typography variant="body2">未找到匹配章节</Typography>
+            </Box>
+          ) : (
+            <VirtualList
+              height={tocListHeight}
+              width="100%"
+              itemCount={filteredChapterIndices.length}
+              itemSize={44}
+              itemData={{
+                items: filteredChapterIndices,
+                chapters,
+                currentChapter,
+                onSelect: goToChapter
+              }}
+            >
+              {TocRow}
+            </VirtualList>
+          )}
         </Box>
       </Drawer>
 
