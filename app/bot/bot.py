@@ -19,9 +19,13 @@ from app.bot.handlers import (
     search_handler,
     recent_handler,
     library_handler,
+    info_handler,
     download_handler,
     formats_handler,
+    favorite_handler,
+    favorites_handler,
     progress_handler,
+    continue_handler,
     callback_handler,
 )
 
@@ -65,9 +69,13 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("search", search_handler))
             self.application.add_handler(CommandHandler("recent", recent_handler))
             self.application.add_handler(CommandHandler("library", library_handler))
+            self.application.add_handler(CommandHandler("info", info_handler))
             self.application.add_handler(CommandHandler("download", download_handler))
             self.application.add_handler(CommandHandler("formats", formats_handler))
+            self.application.add_handler(CommandHandler("favorite", favorite_handler))
+            self.application.add_handler(CommandHandler("favorites", favorites_handler))
             self.application.add_handler(CommandHandler("progress", progress_handler))
+            self.application.add_handler(CommandHandler("continue", continue_handler))
             
             # 注册回调查询处理器（用于翻页按钮）
             self.application.add_handler(CallbackQueryHandler(callback_handler))
@@ -83,9 +91,13 @@ class TelegramBot:
                 BotCommand("search", "搜索书籍"),
                 BotCommand("recent", "查看最新书籍"),
                 BotCommand("library", "浏览书库"),
+                BotCommand("info", "查看书籍详情"),
                 BotCommand("download", "下载书籍"),
                 BotCommand("formats", "查看支持格式"),
+                BotCommand("favorite", "收藏/取消收藏"),
+                BotCommand("favorites", "我的收藏"),
                 BotCommand("progress", "查看阅读进度"),
+                BotCommand("continue", "继续阅读"),
             ]
             await self.application.bot.set_my_commands(commands)
             
