@@ -19,7 +19,7 @@
     "react-dom": "^18.2.0",
     "react-pdf": "^10.3.0",
     "react-router-dom": "^6.21.3",
-    "react-window": "^2.2.5",
+    "react-window": "^1.8.10",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
