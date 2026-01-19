@@ -34,6 +34,7 @@ export default function AdminPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const headingVariant = isMobile ? 'h6' : 'h5'
   
   // 从 URL 读取当前 tab
   const tabValue = useMemo(() => {
@@ -57,8 +58,8 @@ export default function AdminPage() {
   }, [setSearchParams])
 
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
-      <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
+    <Container maxWidth="lg" sx={{ py: { xs: 2, sm: 3 }, px: { xs: 1.5, sm: 2 } }}>
+      <Typography variant={headingVariant} fontWeight="bold" sx={{ mb: { xs: 2, sm: 3 } }}>
         后台管理
       </Typography>
 

@@ -30,13 +30,17 @@ const MainLayout = () => {
       {/* Top AppBar */}
       <AppBar position="fixed" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar>
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              flexGrow: 1, 
+          <Typography
+            variant="h6"
+            noWrap
+            sx={{
+              flexGrow: 1,
               cursor: 'pointer',
               color: 'text.primary',  // 确保文字颜色跟随主题
-            }} 
+              maxWidth: isMobile ? '60vw' : 'none',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
             onClick={() => navigate('/home')}
           >
             📚 {serverName}

@@ -173,6 +173,10 @@ export default function ReaderPage() {
     const normalized = source.toLowerCase()
     return ['mobi', '.mobi', 'azw3', '.azw3'].includes(normalized)
   }, [bookInfo])
+
+  const stopToolbarTouch = (event: React.TouchEvent) => {
+    event.stopPropagation()
+  }
   
   // 漫画图片列表
   const [comicImages, setComicImages] = useState<ComicImage[]>([])
@@ -2154,13 +2158,19 @@ export default function ReaderPage() {
           transform: showToolbar ? 'translateY(0)' : 'translateY(-100%)',
           transition: 'transform 0.3s ease'
         }}
+        onTouchStart={stopToolbarTouch}
+        onTouchMove={stopToolbarTouch}
       >
         <Toolbar
           sx={{
             overflowX: 'auto',
             WebkitOverflowScrolling: 'touch',
+            overscrollBehaviorX: 'contain',
+            touchAction: 'pan-x',
             '&::-webkit-scrollbar': { display: 'none' },
           }}
+          onTouchStart={stopToolbarTouch}
+          onTouchMove={stopToolbarTouch}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 'max-content', pr: 1 }}>
             <IconButton edge="start" color="inherit" onClick={(e) => {
