@@ -975,9 +975,6 @@ async def _perform_continue(update: Update, telegram_id: str, page: int, is_call
 
 
 async def download_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-(update: Update, context: ContextTypes.DEFAULT_TYPE):
-(update: Update, context: ContextTypes.DEFAULT_TYPE):
-(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /download 命令"""
     telegram_id = str(update.effective_user.id)
     
