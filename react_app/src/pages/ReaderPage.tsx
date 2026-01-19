@@ -1218,6 +1218,22 @@ export default function ReaderPage() {
     }
   }
 
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    let timer: number | null = null
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timer = window.setTimeout(() => {
+        reject(new Error(`${label}超时`))
+      }, ms)
+    })
+    try {
+      return await Promise.race([promise, timeoutPromise])
+    } finally {
+      if (timer !== null) {
+        clearTimeout(timer)
+      }
+    }
+  }
+
   const loadEpub = async (customUrl?: string) => {
     try {
       const epubUrl = customUrl || `/api/books/${id}/content`
@@ -1235,9 +1251,9 @@ export default function ReaderPage() {
       
       setEpubBook(book)
       
-      await book.ready
+      await withTimeout(book.ready, 30000, 'EPUB 加载')
       
-      const navigation = await book.loaded.navigation
+      const navigation = await withTimeout(book.loaded.navigation, 30000, 'EPUB 目录加载')
       if (navigation.toc) {
         setEpubToc(navigation.toc as EpubTocItem[])
       }
@@ -1261,16 +1277,17 @@ export default function ReaderPage() {
           }
         })
         
-        await rendition.display()
+        await withTimeout(rendition.display() as Promise<void>, 30000, 'EPUB 渲染')
         
         rendition.on('relocated', (location: any) => {
           const prog = book.locations.percentageFromCfi(location.start.cfi)
           setProgress(prog || 0)
         })
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('加载 EPUB 失败:', err)
       setError('EPUB 加载失败')
+      setErrorDetail(err?.message || '无法解析 EPUB 文件')
     }
   }
 
