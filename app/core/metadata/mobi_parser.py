@@ -282,7 +282,7 @@ class MobiParser:
                 return None
             
         except ImportError:
-            log.error("未安装mobi库，请运行: pip install mobi")
+            log.error("未安装 mobi 或 beautifulsoup4，请运行: pip install mobi beautifulsoup4")
             return None
         except Exception as e:
             log.error(f"提取MOBI文本失败: {file_path}, 错误: {e}", exc_info=True)

@@ -56,21 +56,10 @@ async def get_book_toc(
     
     if file_format in ['txt', '.txt', 'mobi', '.mobi', 'azw3', '.azw3']:
         # 读取全文并解析章节（仅提取目录，不返回内容）
-        content = None
-        
         if file_format in ['mobi', '.mobi', 'azw3', '.azw3']:
             content = await _get_mobi_text(file_path)
         else:
-            encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030']
-            for encoding in encodings:
-                try:
-                    with open(file_path, 'r', encoding=encoding) as f:
-                        content = f.read()
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if content:
-                content = _clean_txt_content(content)
+            content = await _read_txt_file(file_path)
         
         if content is None:
             raise HTTPException(status_code=500, detail="无法读取文件内容")
@@ -262,6 +251,11 @@ async def _read_txt_file(file_path: Path) -> Optional[str]:
     if not file_path.exists():
         log.error(f"文件不存在: {file_path}")
         return None
+
+    # 简单二进制文件检测，避免将压缩/图片等误当 TXT 读取
+    if _is_probably_binary_file(file_path):
+        log.error(f"疑似二进制文件，拒绝按TXT读取: {file_path}")
+        raise HTTPException(status_code=415, detail="疑似非文本文件，可能扩展名错误或文件损坏")
     
     # 1. 尝试常见编码
     encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1']
@@ -441,51 +435,17 @@ async def _read_txt_content(file_path: Path, page: int = 0) -> dict:
         page: 页码（从0开始）
     """
     import re
-    import chardet
     
     try:
         file_size = file_path.stat().st_size
         is_large_file = file_size > LARGE_FILE_THRESHOLD
         
-        # 尝试多种编码
-        encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'big5', 'utf-16']
-        content = None
-        used_encoding = None
-        
-        # 1. 尝试常见编码
-        for encoding in encodings:
-            try:
-                with open(file_path, 'r', encoding=encoding) as f:
-                    content = f.read()
-                used_encoding = encoding
-                break
-            except UnicodeDecodeError:
-                continue
-        
-        # 2. 自动检测编码
-        if content is None:
-            try:
-                with open(file_path, 'rb') as f:
-                    raw_data = f.read(10000)
-                    result = chardet.detect(raw_data)
-                    detected_encoding = result['encoding']
-                    
-                    if detected_encoding:
-                        log.info(f"自动检测到编码: {detected_encoding} for {file_path}")
-                        with open(file_path, 'r', encoding=detected_encoding) as f:
-                            content = f.read()
-                        used_encoding = detected_encoding
-            except Exception as e:
-                log.error(f"自动检测编码失败: {e}")
-
+        content = await _read_txt_file(file_path)
         if content is None:
             raise HTTPException(
                 status_code=500,
                 detail="无法解码文件内容"
             )
-        
-        # 清理常见的网站标记和乱码
-        content = _clean_txt_content(content)
         
         total_length = len(content)
         total_pages = (total_length + CHARS_PER_PAGE - 1) // CHARS_PER_PAGE
@@ -848,6 +808,31 @@ def _clean_txt_content(content: str) -> str:
     content = '\n'.join(cleaned_lines)
     
     return content.strip()
+
+
+def _is_probably_binary_file(file_path: Path, sample_size: int = 8192) -> bool:
+    """
+    根据文件头部字节判断是否为二进制文件
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            sample = f.read(sample_size)
+    except Exception as e:
+        log.warning(f"读取文件样本失败: {file_path}, 错误: {e}")
+        return False
+
+    if not sample:
+        return False
+
+    if b'\x00' in sample:
+        return True
+
+    control_bytes = 0
+    for b in sample:
+        if b < 32 and b not in (9, 10, 13):
+            control_bytes += 1
+
+    return (control_bytes / len(sample)) > 0.1
 
 
 async def _get_valid_version(book: Book) -> BookVersion:
