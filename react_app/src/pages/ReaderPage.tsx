@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, IconButton, Drawer, List, ListItem, ListItemButton,
-  ListItemText, Slider, CircularProgress,
+  ListItemText, Slider, CircularProgress, Button, LinearProgress,
   Alert, AppBar, Toolbar, Divider, FormControl, Select, MenuItem,
+  Dialog, DialogTitle, DialogContent, DialogActions,
   Grid, Chip, TextField, InputAdornment, Paper, useMediaQuery, useTheme
 } from '@mui/material'
 import {
@@ -157,8 +158,20 @@ export default function ReaderPage() {
   const [errorDetail, setErrorDetail] = useState<string | null>(null)  // 详细错误信息
   const [bookInfo, setBookInfo] = useState<{ title: string; format: string } | null>(null)
   const [format, setFormat] = useState<'txt' | 'epub' | 'pdf' | 'comic' | null>(null)
+  const [convertPromptOpen, setConvertPromptOpen] = useState(false)
+  const [convertStatus, setConvertStatus] = useState<'idle' | 'running' | 'success' | 'failed'>('idle')
+  const [convertProgress, setConvertProgress] = useState(0)
+  const [convertMessage, setConvertMessage] = useState<string | null>(null)
+  const [convertJobId, setConvertJobId] = useState<string | null>(null)
+  const convertPollRef = useRef<number | null>(null)
   // 兼容旧代码
   const isEpub = format === 'epub'
+  const isConvertibleFormat = useMemo(() => {
+    const source = bookInfo?.format
+    if (!source) return false
+    const normalized = source.toLowerCase()
+    return ['mobi', '.mobi', 'azw3', '.azw3'].includes(normalized)
+  }, [bookInfo])
   
   // 漫画图片列表
   const [comicImages, setComicImages] = useState<ComicImage[]>([])
@@ -467,6 +480,15 @@ export default function ReaderPage() {
     }
   }, [id])
 
+  useEffect(() => {
+    return () => {
+      if (convertPollRef.current) {
+        clearInterval(convertPollRef.current)
+        convertPollRef.current = null
+      }
+    }
+  }, [])
+
   // 保存进度（防抖）
   // 注意：这个 Effect 主要响应章节变化或非 TXT 格式的进度变化
   // TXT 格式的章节内滚动保存由 handleScroll 处理
@@ -688,6 +710,124 @@ export default function ReaderPage() {
     }
   }, [epubRendition, fontSize, lineHeight, theme, letterSpacing])
 
+  const handleConvertSuggestion = useCallback((err: any) => {
+    if (!isConvertibleFormat) return
+    if (convertStatus === 'running') return
+    if (convertPromptOpen) return
+
+    const detail = err?.response?.data?.detail || err?.response?.data?.message || err?.message
+    setConvertMessage(detail || 'MOBI/AZW3 在线解析失败，建议转换为 EPUB')
+    setConvertStatus('idle')
+    setConvertProgress(0)
+    setConvertPromptOpen(true)
+  }, [isConvertibleFormat, convertPromptOpen, convertStatus])
+
+  const resetConvertPolling = () => {
+    if (convertPollRef.current) {
+      clearInterval(convertPollRef.current)
+      convertPollRef.current = null
+    }
+  }
+
+  const openConvertedEpub = async (epubUrl?: string) => {
+    const url = epubUrl || `/api/books/${id}/converted?format=epub`
+    if (epubBook) {
+      epubBook.destroy()
+    }
+    setEpubBook(null)
+    setEpubRendition(null)
+    setChapters([])
+    setLoadedChapters([])
+    setLoadedRange({ start: -1, end: -1 })
+    setCurrentChapter(0)
+    setLoading(true)
+    setError('')
+    setErrorDetail(null)
+    setFormat('epub')
+    try {
+      await loadEpub(url)
+      setConvertStatus('success')
+      setConvertProgress(1)
+      setConvertPromptOpen(false)
+    } catch (err) {
+      console.error('加载转换后的 EPUB 失败:', err)
+      setConvertStatus('failed')
+      setConvertMessage('转换完成但加载 EPUB 失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const startConvertPolling = (jobId: string) => {
+    resetConvertPolling()
+    convertPollRef.current = window.setInterval(async () => {
+      try {
+        const statusResponse = await api.get(`/api/books/${id}/convert/status`, {
+          params: { job_id: jobId }
+        })
+        const data = statusResponse.data
+        if (data.progress !== undefined) {
+          setConvertProgress(data.progress)
+        }
+        if (data.message) {
+          setConvertMessage(data.message)
+        }
+        if (data.status === 'success') {
+          resetConvertPolling()
+          await openConvertedEpub(data.output_url)
+        }
+        if (data.status === 'failed') {
+          resetConvertPolling()
+          setConvertStatus('failed')
+          setConvertMessage(data.message || '转换失败')
+        }
+      } catch (err) {
+        resetConvertPolling()
+        setConvertStatus('failed')
+        setConvertMessage('查询转换进度失败')
+      }
+    }, 1500)
+  }
+
+  const handleStartConvert = async () => {
+    if (!id) return
+    const forceRetry = convertStatus === 'failed'
+    setConvertStatus('running')
+    setConvertProgress(0)
+    setConvertMessage('开始转换...')
+    try {
+      const response = await api.post(`/api/books/${id}/convert`, {
+        target_format: 'epub',
+        force: forceRetry
+      })
+      const data = response.data
+      if (data.status === 'ready') {
+        await openConvertedEpub(data.output_url)
+        return
+      }
+      if (data.status === 'running' && data.job_id) {
+        setConvertJobId(data.job_id)
+        startConvertPolling(data.job_id)
+        return
+      }
+      setConvertStatus('failed')
+      setConvertMessage(data.message || '转换失败')
+    } catch (err: any) {
+      console.error('启动转换失败:', err)
+      setConvertStatus('failed')
+      setConvertMessage(err?.response?.data?.detail || err?.message || '转换失败')
+    }
+  }
+
+  useEffect(() => {
+    setConvertPromptOpen(false)
+    setConvertStatus('idle')
+    setConvertProgress(0)
+    setConvertMessage(null)
+    setConvertJobId(null)
+    resetConvertPolling()
+  }, [id])
+
   const loadBook = async () => {
     try {
       setLoading(true)
@@ -730,7 +870,10 @@ export default function ReaderPage() {
         // 保存待恢复的偏移
         pendingScrollOffsetRef.current = initialChapterOffset
         // 先加载完整目录
-        await loadToc()
+        const tocOk = await loadToc()
+        if (!tocOk) {
+          return
+        }
         // 然后加载初始章节
         await loadChapterContent(initialChapterIndex)
       } else if (fileFormat === 'pdf' || fileFormat === '.pdf') {
@@ -739,7 +882,10 @@ export default function ReaderPage() {
         setTotalChapters(1) 
       } else if (['zip', '.zip', 'cbz', '.cbz'].includes(fileFormat)) {
         setFormat('comic')
-        await loadToc()
+        const tocOk = await loadToc()
+        if (!tocOk) {
+          return
+        }
         setCurrentChapter(initialChapterIndex)
       } else {
         setError(`暂不支持 ${fileFormat} 格式的在线阅读`)
@@ -753,7 +899,7 @@ export default function ReaderPage() {
   }
 
   // 加载完整目录
-  const loadToc = async () => {
+  const loadToc = async (): Promise<boolean> => {
     try {
       const tocResponse = await api.get(`/api/books/${id}/toc`)
       const data = tocResponse.data
@@ -771,8 +917,11 @@ export default function ReaderPage() {
           endOffset: idx + 1
         })))
       }
+      return true
     } catch (err) {
       console.error('加载目录失败:', err)
+      handleConvertSuggestion(err)
+      return false
     }
   }
 
@@ -924,10 +1073,10 @@ export default function ReaderPage() {
       // 提取详细错误信息
       let errorMessage = '加载章节失败'
       let detailMessage = null
+      const status = err?.response?.status
       
       if (err.response) {
         // 服务器返回的错误
-        const status = err.response.status
         const detail = err.response.data?.detail || err.response.data?.message
         
         if (status === 500) {
@@ -946,9 +1095,14 @@ export default function ReaderPage() {
       } else if (err.message) {
         errorMessage = err.message
       }
+
+      const shouldSuggestConvert = isConvertibleFormat && (status === 422 || status === 500)
+      if (shouldSuggestConvert) {
+        handleConvertSuggestion(err)
+      }
       
       // 自动重试（最多3次）
-      if (retryCount < 2 && !err.response?.status?.toString().startsWith('4')) {
+      if (retryCount < 2 && !err.response?.status?.toString().startsWith('4') && !shouldSuggestConvert) {
         console.log(`重试加载章节 (${retryCount + 1}/3)...`)
         setTimeout(() => {
           loadChapterContent(chapterIndex, buffer, retryCount + 1)
@@ -1050,9 +1204,9 @@ export default function ReaderPage() {
     }
   }
 
-  const loadEpub = async () => {
+  const loadEpub = async (customUrl?: string) => {
     try {
-      const epubUrl = `/api/books/${id}/content`
+      const epubUrl = customUrl || `/api/books/${id}/content`
       
       const book = ePub(epubUrl, {
         requestHeaders: {
@@ -2820,6 +2974,54 @@ export default function ReaderPage() {
           )}
         </Box>
       </Drawer>
+
+      <Dialog
+        open={convertPromptOpen}
+        onClose={() => {
+          if (convertStatus === 'running') return
+          setConvertPromptOpen(false)
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>转换为 EPUB 以继续阅读</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            {convertMessage || '检测到 MOBI/AZW3 在线解析失败，建议转换为 EPUB 继续阅读。'}
+          </Typography>
+          {convertStatus === 'running' && (
+            <Box sx={{ mt: 1 }}>
+              <LinearProgress variant="determinate" value={Math.round(convertProgress * 100)} />
+              <Typography variant="caption" color="text.secondary">
+                {Math.round(convertProgress * 100)}%
+              </Typography>
+            </Box>
+          )}
+          {convertStatus === 'failed' && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {convertMessage || '转换失败，请重试'}
+            </Alert>
+          )}
+          {convertStatus === 'success' && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              转换完成，正在打开 EPUB...
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setConvertPromptOpen(false)}
+            disabled={convertStatus === 'running'}
+          >
+            取消
+          </Button>
+          {convertStatus !== 'running' && (
+            <Button variant="contained" onClick={handleStartConvert}>
+              {convertStatus === 'failed' ? '重试转换' : '开始转换'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

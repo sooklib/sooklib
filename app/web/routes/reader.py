@@ -9,6 +9,7 @@ import multiprocessing
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,12 @@ from app.config import settings
 from app.core.metadata.comic_parser import ComicParser
 from app.core.metadata.txt_parser import TxtParser
 from app.core.metadata.mobi_parser import MobiParser, extract_text_in_subprocess
+from app.core.conversion.ebook_convert import (
+    request_conversion,
+    get_conversion_status,
+    get_cached_conversion_path,
+    is_conversion_supported
+)
 from io import BytesIO
 import hashlib
 
@@ -42,6 +49,11 @@ MOBI_MAX_HTML_BYTES = 2 * 1024 * 1024
 MOBI_EXTRACT_TIMEOUT_SECONDS = 30
 MOBI_EXTRACT_MEMORY_LIMIT_MB = 512
 MOBI_TEXT_LENGTH_LIMIT = 5_000_000
+
+
+class ConvertRequest(BaseModel):
+    target_format: str = "epub"
+    force: bool = False
 
 
 @router.get("/books/{book_id}/toc")
@@ -71,6 +83,8 @@ async def get_book_toc(
             content = await _read_txt_file(file_path)
         
         if content is None:
+            if file_format in ['mobi', '.mobi', 'azw3', '.azw3']:
+                raise HTTPException(status_code=422, detail="MOBI/AZW3解析失败，建议转换为EPUB")
             raise HTTPException(status_code=500, detail="无法读取文件内容")
         
         total_length = len(content)
@@ -152,6 +166,8 @@ async def get_chapter_content(
         
     if content is None:
         log.error(f"无法读取文件内容: {file_path}")
+        if file_format in ['mobi', '.mobi', 'azw3', '.azw3']:
+            raise HTTPException(status_code=422, detail="MOBI/AZW3解析失败，建议转换为EPUB")
         raise HTTPException(status_code=500, detail="无法读取文件内容")
     
     # 解析章节
@@ -465,7 +481,7 @@ async def get_book_content(
             # 对于MOBI，先获取文本内容缓存路径
             content = await _get_mobi_text(file_path)
             if not content:
-                raise HTTPException(status_code=500, detail="无法提取MOBI内容")
+                raise HTTPException(status_code=422, detail="MOBI/AZW3解析失败，建议转换为EPUB")
             
             # 为了复用 _read_txt_content 的分页逻辑，我们需要构造一个临时的缓存文件路径
             # 这里我们简单一点：使用 _get_mobi_text 已经生成的缓存文件
@@ -500,6 +516,104 @@ async def get_book_content(
             status_code=400,
             detail=f"不支持的文件格式: {file_format}"
         )
+
+
+@router.post("/books/{book_id}/convert")
+async def convert_book_format(
+    payload: ConvertRequest,
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    触发电子书格式转换（异步任务）
+    """
+    await db.refresh(book, ['versions'])
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
+
+    input_format = version.file_format.lower().lstrip(".")
+    target_format = payload.target_format.lower().lstrip(".")
+
+    if not is_conversion_supported(input_format, target_format):
+        raise HTTPException(status_code=400, detail="不支持的转换格式")
+
+    if input_format == target_format:
+        return {
+            "status": "ready",
+            "target_format": target_format,
+            "output_url": f"/api/books/{book.id}/content",
+            "cached": True
+        }
+
+    result = request_conversion(file_path, target_format, force=payload.force)
+    output_url = f"/api/books/{book.id}/converted?format={target_format}"
+    return {
+        "status": result.get("status"),
+        "job_id": result.get("job_id"),
+        "progress": result.get("progress", 0),
+        "message": result.get("message"),
+        "target_format": target_format,
+        "output_url": output_url
+    }
+
+
+@router.get("/books/{book_id}/convert/status")
+async def get_convert_status(
+    job_id: str = Query(..., description="转换任务ID"),
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    查询格式转换任务状态
+    """
+    status = get_conversion_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="转换任务不存在")
+
+    target_format = status.get("target_format") or "epub"
+    output_url = f"/api/books/{book.id}/converted?format={target_format}"
+    return {
+        "status": status.get("status"),
+        "progress": status.get("progress", 0),
+        "message": status.get("message"),
+        "target_format": target_format,
+        "output_url": output_url
+    }
+
+
+@router.get("/books/{book_id}/converted")
+async def get_converted_book(
+    target_format: str = Query("epub", description="目标格式"),
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取转换后的文件
+    """
+    await db.refresh(book, ['versions'])
+    version = await _get_valid_version(book)
+    file_path = Path(version.file_path)
+    target_format = target_format.lower().lstrip(".")
+
+    converted_path = get_cached_conversion_path(file_path, target_format)
+    if not converted_path:
+        raise HTTPException(status_code=404, detail="转换文件不存在")
+
+    media_type_map = {
+        "epub": "application/epub+zip",
+        "mobi": "application/x-mobipocket-ebook",
+        "azw3": "application/vnd.amazon.ebook"
+    }
+    media_type = media_type_map.get(target_format, "application/octet-stream")
+
+    return FileResponse(
+        converted_path,
+        media_type=media_type,
+        filename=f"{file_path.stem}.{target_format}"
+    )
 
 
 @router.get("/books/{book_id}/comic/page/{index}")
