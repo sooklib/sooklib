@@ -19,7 +19,7 @@
 ### 查看当前数据库版本
 
 ```bash
-cd novel-library
+cd sooklib
 alembic current
 ```
 
@@ -200,7 +200,7 @@ cp data/library.db.backup data/library.db
 
 ```bash
 # 进入容器
-docker exec -it novel-library sh
+docker exec -it sooklib sh
 
 # 执行迁移
 alembic upgrade head
@@ -339,7 +339,7 @@ alembic revision --autogenerate -m "new description"
 
 - [Alembic 官方文档](https://alembic.sqlalchemy.org/)
 - [SQLAlchemy 文档](https://docs.sqlalchemy.org/)
-- 项目架构：`plans/novel-library-architecture-v2.md`
+- 项目架构：`plans/sooklib-architecture-v2.md`
 - 数据库模型：`app/models.py`
 
 ## 更新历史

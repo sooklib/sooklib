@@ -1,6 +1,6 @@
 {
-    "name": "Novel Library",
-    "short_name": "Novel Library",
+    "name": "Sooklib",
+    "short_name": "Sooklib",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -57,7 +57,7 @@ sudo firewall-cmd --reload
 如果在宿主机运行（不是Docker），需要修改配置文件中的路径：
 
 ```bash
-cd novel-library
+cd sooklib
 
 # 编辑配置文件
 nano config/config.yaml
@@ -86,7 +86,7 @@ python3 -m app.main
 不修改配置文件，直接通过环境变量设置：
 
 ```bash
-cd novel-library
+cd sooklib
 
 # 设置环境变量
 export SERVER_HOST=0.0.0.0
@@ -123,7 +123,7 @@ tail -f data/logs/app.log
 创建一个新的配置文件用于宿主机运行：
 
 ```bash
-cd novel-library
+cd sooklib
 
 # 创建本地配置
 cat > config/config-local.yaml << 'EOF'
@@ -171,7 +171,7 @@ logging:
 
 opds:
   title: "我的小说书库"
-  author: "Novel Library"
+  author: "Sooklib"
   description: "个人小说收藏"
   page_size: 50
 EOF
@@ -185,7 +185,7 @@ python3 -m app.main
 如果以上都不行，直接运行最小化测试：
 
 ```bash
-cd novel-library
+cd sooklib
 
 # 创建测试脚本
 python3 << 'EOF'

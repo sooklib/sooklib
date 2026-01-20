@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 # 创建FastAPI应用
 app = FastAPI(
-    title="Novel Library",
+    title="Sooklib",
     description="小说书库管理系统",
     version="1.0.0",
     lifespan=lifespan,

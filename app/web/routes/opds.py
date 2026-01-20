@@ -78,7 +78,7 @@ async def get_opds_user(
     raise HTTPException(
         status_code=401,
         detail="需要认证",
-        headers={"WWW-Authenticate": 'Basic realm="Novel Library OPDS"'}
+        headers={"WWW-Authenticate": 'Basic realm="Sooklib OPDS"'}
     )
 
 

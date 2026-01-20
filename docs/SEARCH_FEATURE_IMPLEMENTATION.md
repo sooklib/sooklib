@@ -172,13 +172,13 @@ if library_id:
 ## 文件清单
 
 ### 新建文件
-1. `novel-library/app/web/templates/search.html` - 搜索页面模板（800+ 行）
+1. `sooklib/app/web/templates/search.html` - 搜索页面模板（800+ 行）
 
 ### 修改文件
-1. `novel-library/app/web/routes/api.py` - 增强搜索API
-2. `novel-library/app/web/routes/pages.py` - 添加搜索页面路由
-3. `novel-library/app/web/templates/base.html` - 添加搜索导航链接
-4. `novel-library/app/web/templates/library.html` - 添加快速搜索跳转
+1. `sooklib/app/web/routes/api.py` - 增强搜索API
+2. `sooklib/app/web/routes/pages.py` - 添加搜索页面路由
+3. `sooklib/app/web/templates/base.html` - 添加搜索导航链接
+4. `sooklib/app/web/templates/library.html` - 添加快速搜索跳转
 
 ## 性能优化
 

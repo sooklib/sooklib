@@ -37,7 +37,7 @@
 
 #### 分析所有书库
 ```bash
-cd novel-library
+cd sooklib
 python scripts/analyze_filenames.py --all
 ```
 

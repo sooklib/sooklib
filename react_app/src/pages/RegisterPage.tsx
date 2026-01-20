@@ -135,7 +135,7 @@ export default function RegisterPage() {
               注册账号
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Novel Library
+              Sooklib
             </Typography>
           </Box>
 

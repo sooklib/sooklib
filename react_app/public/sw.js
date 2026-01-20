@@ -1,5 +1,5 @@
-// Service Worker for Novel Library PWA
-const CACHE_NAME = 'novel-library-v1';
+// Service Worker for Sooklib PWA
+const CACHE_NAME = 'sooklib-v1';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

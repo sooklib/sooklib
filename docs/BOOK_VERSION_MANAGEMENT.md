@@ -274,7 +274,7 @@ async def get_recent_books(...):
 cp data/library.db data/library.db.backup
 
 # 2. 运行迁移
-cd novel-library
+cd sooklib
 alembic upgrade head
 
 # 3. 验证迁移

@@ -1,4 +1,4 @@
-# 📚 Novel Library - 小说书库管理系统
+# 📚 Sooklib - 小说书库管理系统
 
 一个功能强大的小说管理和阅读系统，包含完整的后端API、React WebUI前端、以及Telegram机器人集成。
 
@@ -35,10 +35,10 @@
 
 ```bash
 # 1. 创建目录
-mkdir novel-library && cd novel-library
+mkdir sooklib && cd sooklib
 
 # 2. 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.com/Haruka041/novel-library/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Haruka041/sooklib/main/docker-compose.yml
 
 # 3. 修改配置（书库路径、密钥等）
 vim docker-compose.yml
@@ -56,9 +56,9 @@ docker-compose up -d
 version: '3.8'
 
 services:
-  novel-library:
-    image: ghcr.io/haruka041/novel-library:latest
-    container_name: novel-library
+  sooklib:
+    image: ghcr.io/haruka041/sooklib:latest
+    container_name: sooklib
     ports:
       - "8080:8080"
     volumes:
@@ -96,7 +96,7 @@ services:
 ## 📁 项目结构
 
 ```
-novel-library/
+sooklib/
 ├── app/                      # 后端应用
 │   ├── core/                # 核心功能（扫描、元数据等）
 │   ├── web/                 # Web路由和模板
@@ -162,7 +162,7 @@ novel-library/
 
 ## 📱 OPDS 阅读器使用
 
-OPDS 支持 HTTP Basic Auth 认证，使用您的 Novel Library 账号密码登录。
+OPDS 支持 HTTP Basic Auth 认证，使用您的 Sooklib 账号密码登录。
 
 ### 在常见阅读器中配置
 
@@ -171,7 +171,7 @@ OPDS 支持 HTTP Basic Auth 认证，使用您的 Novel Library 账号密码登�
 1. 打开 OPDS 目录设置
 2. 输入目录地址：`http://your-server:8080/opds/`
 3. 在认证设置中填写：
-   - 用户名：您的 Novel Library 用户名
+   - 用户名：您的 Sooklib 用户名
    - 密码：您的密码
 4. 保存并刷新
 
@@ -294,8 +294,8 @@ MIT License
 
 ## 📞 联系方式
 
-- 提交 Issue: https://github.com/Haruka041/novel-library/issues
-- Pull Request: https://github.com/Haruka041/novel-library/pulls
+- 提交 Issue: https://github.com/Haruka041/sooklib/issues
+- Pull Request: https://github.com/Haruka041/sooklib/pulls
 
 ---
 

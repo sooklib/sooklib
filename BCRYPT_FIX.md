@@ -10,7 +10,7 @@
 
 ### 步骤1：更新 requirements.txt
 
-编辑 `novel-library/requirements.txt`，将：
+编辑 `sooklib/requirements.txt`，将：
 ```txt
 passlib[bcrypt]>=1.7.4
 ```
@@ -22,7 +22,7 @@ bcrypt>=4.0.0
 
 ### 步骤2：确认 security.py 已更新
 
-确保 `novel-library/app/security.py` 文件内容正确（直接使用 bcrypt，不使用 passlib）。
+确保 `sooklib/app/security.py` 文件内容正确（直接使用 bcrypt，不使用 passlib）。
 
 文件应该开头是：
 ```python
@@ -39,7 +39,7 @@ from passlib.context import CryptContext
 
 ```bash
 # 进入 Docker 容器
-docker exec -it novel-library bash
+docker exec -it sooklib bash
 
 # 卸载 passlib
 pip uninstall -y passlib
@@ -51,7 +51,7 @@ pip install bcrypt
 exit
 
 # 重启容器
-docker restart novel-library
+docker restart sooklib
 ```
 
 ## 方案2：直接在宿主机运行（最简单）
@@ -63,7 +63,7 @@ docker restart novel-library
 docker-compose down
 
 # 在宿主机运行
-cd novel-library
+cd sooklib
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt

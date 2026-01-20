@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icons/*.png'],
       manifest: {
-        name: 'Novel Library',
-        short_name: 'NovelLib',
+        name: 'Sooklib',
+        short_name: 'Sooklib',
         description: '小说书库管理系统',
         theme_color: '#90caf9',
         background_color: '#121212',

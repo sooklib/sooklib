@@ -288,8 +288,8 @@ def build_opds_search_descriptor(base_url: str) -> str:
     """
     xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
-  <ShortName>Novel Library Search</ShortName>
-  <Description>Search for books in Novel Library</Description>
+  <ShortName>Sooklib Search</ShortName>
+  <Description>Search for books in Sooklib</Description>
   <InputEncoding>UTF-8</InputEncoding>
   <OutputEncoding>UTF-8</OutputEncoding>
   <Url type="application/atom+xml;profile=opds-catalog;kind=acquisition"

@@ -132,7 +132,7 @@ export default function LoginPage() {
               小说书库
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Novel Library
+              Sooklib
             </Typography>
           </Box>
 

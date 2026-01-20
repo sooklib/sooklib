@@ -1,4 +1,4 @@
-# Novel Library - React WebUI
+# Sooklib - React WebUI
 
 基于 React + TypeScript + Material-UI 构建的小说书库 Web 前端。
 

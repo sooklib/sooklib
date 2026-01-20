@@ -34,7 +34,7 @@ sudo systemctl restart docker
 
 ```yaml
 services:
-  novel-library:
+  sooklib:
     build: .
     network_mode: "host"  # 添加这行
     # ... 其他配置
@@ -45,7 +45,7 @@ services:
 如果 Docker 网络问题难以解决，可以直接在宿主机运行：
 
 ```bash
-cd novel-library
+cd sooklib
 
 # 安装依赖
 pip3 install -r requirements.txt
@@ -66,11 +66,11 @@ python3 -m app.main
 ```bash
 # 在有网络的机器上
 docker-compose build
-docker save novel-library:latest > novel-library.tar
+docker save sooklib:latest > sooklib.tar
 
 # 传输到目标服务器
 # 在目标服务器上
-docker load < novel-library.tar
+docker load < sooklib.tar
 docker-compose up -d
 ```
 

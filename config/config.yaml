@@ -14,7 +14,7 @@ database:
 directories:
   data: /app/data
   covers: /app/covers
-  temp: /tmp/novel-library
+  temp: /tmp/sooklib
 
 # 扫描配置
 scanner:
@@ -61,6 +61,6 @@ logging:
 # OPDS配置
 opds:
   title: "我的小说书库"
-  author: "Novel Library"
+  author: "Sooklib"
   description: "个人小说收藏"
   page_size: 50

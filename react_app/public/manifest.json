@@ -1,6 +1,6 @@
 {
-  "name": "Novel Library",
-  "short_name": "NovelLib",
+  "name": "Sooklib",
+  "short_name": "Sooklib",
   "description": "小说书库管理系统",
   "start_url": "/",
   "display": "standalone",

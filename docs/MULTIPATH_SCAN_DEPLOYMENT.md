@@ -29,7 +29,7 @@
 ### 1. 拉取最新代码
 
 ```bash
-cd /path/to/novel-library
+cd /path/to/sooklib
 git pull origin main
 ```
 

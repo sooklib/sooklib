@@ -96,7 +96,7 @@ class User(Base):
 
 ```bash
 # 执行迁移
-cd novel-library
+cd sooklib
 alembic upgrade head
 ```
 
@@ -188,7 +188,7 @@ services:
 ### 3. 执行数据库迁移
 
 ```bash
-cd novel-library
+cd sooklib
 alembic upgrade head
 ```
 

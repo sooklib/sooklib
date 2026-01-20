@@ -26,7 +26,7 @@ class DirectoriesConfig(BaseModel):
     """目录配置"""
     data: str = "/app/data"
     covers: str = "/app/covers"
-    temp: str = "/tmp/novel-library"
+    temp: str = "/tmp/sooklib"
 
 
 class ScannerConfig(BaseModel):
@@ -72,7 +72,7 @@ class LoggingConfig(BaseModel):
 class OPDSConfig(BaseModel):
     """OPDS配置"""
     title: str = "我的小说书库"
-    author: str = "Novel Library"
+    author: str = "Sooklib"
     description: str = "个人小说收藏"
     page_size: int = 50
 

@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  novel-library:
-    image: ghcr.io/haruka041/novel-library:latest
-    container_name: novel-library
+  sooklib:
+    image: ghcr.io/haruka041/sooklib:latest
+    container_name: sooklib
     ports:
       - "8080:8080"
     volumes:
