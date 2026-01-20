@@ -20,6 +20,7 @@ from app.bot.handlers import (
     recent_handler,
     library_handler,
     info_handler,
+    read_handler,
     download_handler,
     formats_handler,
     favorite_handler,
@@ -72,6 +73,7 @@ class TelegramBot:
             self.application.add_handler(CommandHandler("recent", recent_handler))
             self.application.add_handler(CommandHandler("library", library_handler))
             self.application.add_handler(CommandHandler("info", info_handler))
+            self.application.add_handler(CommandHandler("read", read_handler))
             self.application.add_handler(CommandHandler("download", download_handler))
             self.application.add_handler(CommandHandler("formats", formats_handler))
             self.application.add_handler(CommandHandler("favorite", favorite_handler))
@@ -96,6 +98,7 @@ class TelegramBot:
                 BotCommand("recent", "查看最新书籍"),
                 BotCommand("library", "浏览书库"),
                 BotCommand("info", "查看书籍详情"),
+                BotCommand("read", "TXT 在线阅读"),
                 BotCommand("download", "下载书籍"),
                 BotCommand("formats", "查看支持格式"),
                 BotCommand("favorite", "收藏/取消收藏"),

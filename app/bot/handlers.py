@@ -5,6 +5,8 @@ import secrets
 import math
 import html
 import re
+import codecs
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -32,6 +34,11 @@ _search_cache = {}
 
 # 每页显示数量
 PAGE_SIZE = 10
+READ_PAGE_BYTES = 3500
+READ_MAX_CHARS = 3000
+
+# Telegram TXT 阅读会话缓存
+_tg_reading_sessions = {}
 
 
 def _escape(text: Optional[str]) -> str:
@@ -62,6 +69,145 @@ def _format_book_title(title: str, book_id: int, bot_username: Optional[str]) ->
         return safe_title
     link = f"https://t.me/{bot_username}?start=book_{book_id}"
     return f'<a href="{link}">{safe_title}</a>'
+
+
+def _clean_txt_chunk(content: str) -> str:
+    """清理 TXT 文本片段"""
+    content = content.replace('\r\n', '\n')
+    return re.sub(r'[\u200b\u200c\u200d\ufeff]', '', content)
+
+
+def _is_probably_binary_file(file_path: Path, sample_size: int = 8192) -> bool:
+    """根据文件头部字节判断是否为二进制文件"""
+    try:
+        with open(file_path, 'rb') as f:
+            sample = f.read(sample_size)
+    except Exception as e:
+        logger.warning(f"读取文件样本失败: {file_path}, 错误: {e}")
+        return False
+
+    if not sample:
+        return False
+
+    if sample.startswith(b'\xff\xfe') or sample.startswith(b'\xfe\xff'):
+        return False
+
+    if b'\x00' in sample:
+        even_nulls = sum(1 for i in range(0, len(sample), 2) if sample[i] == 0)
+        odd_nulls = sum(1 for i in range(1, len(sample), 2) if sample[i] == 0)
+        if max(even_nulls, odd_nulls) / max(1, len(sample) // 2) > 0.6:
+            return False
+        return True
+
+    control_bytes = 0
+    for b in sample:
+        if b < 32 and b not in (9, 10, 13):
+            control_bytes += 1
+
+    return (control_bytes / len(sample)) > 0.1
+
+
+def _detect_txt_encoding(file_path: Path) -> Optional[str]:
+    """检测 TXT 文件编码"""
+    import chardet
+
+    if _is_probably_binary_file(file_path):
+        return None
+
+    def decode_quality(text: str) -> float:
+        if not text:
+            return 1.0
+        total = len(text)
+        replacement = text.count('\ufffd')
+        control = sum(1 for ch in text if ord(ch) < 32 and ch not in '\t\n\r')
+        return (replacement + control) / total
+
+    def cjk_ratio(text: str) -> float:
+        if not text:
+            return 0.0
+        total = len(text)
+        cjk = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
+        return cjk / total
+
+    candidates = [
+        'utf-8', 'utf-8-sig',
+        'gb18030', 'gbk', 'gb2312',
+        'big5',
+        'utf-16-le', 'utf-16-be',
+    ]
+
+    try:
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(200000)
+    except Exception as e:
+        logger.error(f"读取编码检测样本失败: {e}")
+        return None
+
+    if raw_data.startswith(b'\xff\xfe'):
+        return 'utf-16-le'
+    if raw_data.startswith(b'\xfe\xff'):
+        return 'utf-16-be'
+
+    best_encoding = None
+    best_score = None
+    for encoding in candidates:
+        try:
+            decoded = raw_data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        score = (decode_quality(decoded), -cjk_ratio(decoded))
+        if best_score is None or score < best_score:
+            best_score = score
+            best_encoding = encoding
+
+    if best_encoding:
+        return best_encoding
+
+    result = chardet.detect(raw_data)
+    detected = result.get('encoding')
+    if not detected:
+        return None
+
+    detected_lower = detected.lower()
+    if detected_lower in ('utf-16', 'utf_16'):
+        even_nulls = sum(1 for i in range(0, len(raw_data), 2) if raw_data[i] == 0)
+        odd_nulls = sum(1 for i in range(1, len(raw_data), 2) if raw_data[i] == 0)
+        if odd_nulls > even_nulls:
+            return 'utf-16-le'
+        if even_nulls > odd_nulls:
+            return 'utf-16-be'
+        return None
+
+    if detected_lower in ('utf-16le', 'utf_16le'):
+        return 'utf-16-le'
+    if detected_lower in ('utf-16be', 'utf_16be'):
+        return 'utf-16-be'
+
+    return detected
+
+
+def _read_txt_page(file_path: Path, offset: int, page_size: int, encoding: str) -> tuple[str, int]:
+    """按字节读取 TXT 片段"""
+    with open(file_path, 'rb') as f:
+        f.seek(max(0, offset))
+        chunk = f.read(page_size)
+
+    if not chunk:
+        return "", 0
+
+    decoder = codecs.getincrementaldecoder(encoding)(errors='replace')
+    text = decoder.decode(chunk, final=True)
+    text = _clean_txt_chunk(text)
+    if len(text) > READ_MAX_CHARS:
+        text = text[:READ_MAX_CHARS]
+    return text, len(chunk)
+
+
+def _find_txt_version(book: Book) -> Optional[BookVersion]:
+    for version in book.versions or []:
+        if version.file_format and version.file_format.lower() == "txt":
+            return version
+    return None
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -108,6 +254,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /recent - 最新添加的书籍
 /library - 我的书库列表
 /info <书籍ID> - 查看书籍详情
+/read <书籍ID> - Telegram 内阅读 TXT
 
 ⬇️ 下载
 /download <书籍ID> - 下载书籍
@@ -554,6 +701,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except ValueError:
                 await query.answer("无效的书籍ID", show_alert=True)
 
+    elif data.startswith("read:"):
+        # TXT 阅读翻页: read:<book_id>:<offset>
+        parts = data.split(":")
+        if len(parts) == 3:
+            try:
+                book_id = int(parts[1])
+                offset = int(parts[2])
+                await _perform_read_page(update, telegram_id, book_id, offset, is_callback=True, context=context)
+            except ValueError:
+                await query.answer("无效的阅读参数", show_alert=True)
+
     elif data.startswith("fav:"):
         # 收藏/取消收藏: fav:<book_id>
         parts = data.split(":")
@@ -758,6 +916,7 @@ async def _send_book_info(update: Update, telegram_id: str, book_id: int, is_cal
             for version in book.versions:
                 formats.append(version.file_format.upper())
             format_str = ", ".join(sorted(set(formats))) if formats else "未知"
+            txt_version = _find_txt_version(book)
 
             message = "📘 书籍详情\n\n"
             message += f"📖 书名: {book.title}\n"
@@ -769,6 +928,8 @@ async def _send_book_info(update: Update, telegram_id: str, book_id: int, is_cal
                 message += f"\n📝 简介:\n{description}\n"
             message += f"\n🆔 下载: /download {book.id}\n"
             message += f"🆔 格式列表: /formats {book.id}\n"
+            if txt_version:
+                message += f"🆔 阅读: /read {book.id}\n"
 
             fav_result = await db.execute(
                 select(Favorite)
@@ -777,12 +938,16 @@ async def _send_book_info(update: Update, telegram_id: str, book_id: int, is_cal
             )
             is_favorite = fav_result.scalar_one_or_none() is not None
             fav_label = "⭐ 取消收藏" if is_favorite else "⭐ 收藏"
-            keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("⬇️ 下载", callback_data=f"download:{book.id}"),
-                    InlineKeyboardButton(fav_label, callback_data=f"fav:{book.id}")
-                ]
+            keyboard_rows = []
+            if txt_version:
+                keyboard_rows.append([
+                    InlineKeyboardButton("📖 开始阅读", callback_data=f"read:{book.id}:0")
+                ])
+            keyboard_rows.append([
+                InlineKeyboardButton("⬇️ 下载", callback_data=f"download:{book.id}"),
+                InlineKeyboardButton(fav_label, callback_data=f"fav:{book.id}")
             ])
+            keyboard = InlineKeyboardMarkup(keyboard_rows)
 
             if is_callback:
                 await update.callback_query.edit_message_text(message, reply_markup=keyboard)
@@ -812,6 +977,183 @@ async def info_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ 无效的书籍ID")
         return
     await _send_book_info(update, telegram_id, book_id, is_callback=False)
+
+
+async def read_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /read 命令"""
+    telegram_id = str(update.effective_user.id)
+    if not context.args:
+        await update.message.reply_text(
+            "? 请提供书籍ID\n"
+            "用法: /read <书籍ID>"
+        )
+        return
+    try:
+        book_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("? 无效的书籍ID")
+        return
+    await _perform_read_page(update, telegram_id, book_id, offset=None, is_callback=False, context=context)
+
+
+async def _perform_read_page(
+    update: Update,
+    telegram_id: str,
+    book_id: int,
+    offset: Optional[int],
+    is_callback: bool = False,
+    context: Optional[ContextTypes.DEFAULT_TYPE] = None,
+):
+    """按字节分页阅读 TXT"""
+    async for db in get_db():
+        try:
+            user = await _get_bound_user(update, telegram_id, db, is_callback)
+            if not user:
+                return
+            result = await db.execute(
+                select(Book)
+                .options(joinedload(Book.author), joinedload(Book.versions))
+                .where(Book.id == book_id)
+            )
+            book = result.unique().scalar_one_or_none()
+            if not book:
+                msg = "? 书籍不存在"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+            if not await check_book_access(user, book.id, db):
+                msg = "? 无权访问此书籍"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+
+            txt_version = _find_txt_version(book)
+            if not txt_version:
+                msg = "? 仅支持 TXT 在线阅读，请下载原文件"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+
+            file_path = Path(txt_version.file_path)
+            if not file_path.exists():
+                msg = "? 文件不存在"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+
+            file_size = txt_version.file_size or file_path.stat().st_size
+            session_key = (telegram_id, book_id)
+            session = _tg_reading_sessions.get(session_key)
+
+            if offset is None:
+                offset = session["offset"] if session else 0
+
+            offset = max(0, offset)
+            if file_size > 0 and offset >= file_size:
+                offset = max(0, file_size - READ_PAGE_BYTES)
+
+            encoding = None
+            if session and session.get("file_path") == str(file_path):
+                encoding = session.get("encoding")
+            if not encoding:
+                encoding = _detect_txt_encoding(file_path)
+            if not encoding:
+                msg = "? 编码识别失败，请下载阅读"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+
+            text, bytes_read = _read_txt_page(file_path, offset, READ_PAGE_BYTES, encoding)
+            if not text:
+                msg = "? 内容为空或已到结尾"
+                if is_callback:
+                    await update.callback_query.answer(msg, show_alert=True)
+                else:
+                    await update.message.reply_text(msg)
+                return
+
+            next_offset = min(file_size, offset + bytes_read)
+            total_pages = max(1, math.ceil(file_size / READ_PAGE_BYTES)) if file_size else 1
+            page = min(total_pages, offset // READ_PAGE_BYTES + 1)
+            percent = int(min(100, (next_offset / max(1, file_size)) * 100))
+
+            message = f"?? {book.title}\n页: {page}/{total_pages} | 进度: {percent}%\n\n{text}"
+
+            keyboard = []
+            nav_row = []
+            if offset > 0:
+                prev_offset = max(0, offset - READ_PAGE_BYTES)
+                nav_row.append(InlineKeyboardButton("?? 上一页", callback_data=f"read:{book.id}:{prev_offset}"))
+            if next_offset < file_size:
+                nav_row.append(InlineKeyboardButton("下一页 ??", callback_data=f"read:{book.id}:{next_offset}"))
+            if nav_row:
+                keyboard.append(nav_row)
+            keyboard.append([
+                InlineKeyboardButton("?? 详情", callback_data=f"info:{book.id}"),
+                InlineKeyboardButton("?? 下载", callback_data=f"download:{book.id}"),
+            ])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            if is_callback:
+                await update.callback_query.edit_message_text(
+                    message,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True,
+                )
+            else:
+                await update.message.reply_text(
+                    message,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True,
+                )
+
+            _tg_reading_sessions[session_key] = {
+                "offset": offset,
+                "encoding": encoding,
+                "file_path": str(file_path),
+                "file_size": file_size,
+            }
+
+            progress_value = min(1.0, (next_offset / max(1, file_size)))
+            result = await db.execute(
+                select(ReadingProgress)
+                .where(ReadingProgress.user_id == user.id)
+                .where(ReadingProgress.book_id == book.id)
+            )
+            progress = result.scalar_one_or_none()
+            if progress is None:
+                progress = ReadingProgress(
+                    user_id=user.id,
+                    book_id=book.id,
+                    progress=progress_value,
+                    position=f"byte:{next_offset}",
+                    finished=progress_value >= 0.999,
+                )
+                db.add(progress)
+            else:
+                progress.progress = progress_value
+                progress.position = f"byte:{next_offset}"
+                progress.finished = progress_value >= 0.999
+                progress.last_read_at = datetime.utcnow()
+            await db.commit()
+
+        except Exception as e:
+            logger.error(f"读取 TXT 失败: {e}")
+            msg = "? 阅读失败，请稍后重试"
+            if is_callback:
+                await update.callback_query.answer(msg, show_alert=True)
+            else:
+                await update.message.reply_text(msg)
 
 
 async def _toggle_favorite(update: Update, telegram_id: str, book_id: int, is_callback: bool = False):
