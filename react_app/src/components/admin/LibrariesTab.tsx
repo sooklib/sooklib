@@ -12,7 +12,7 @@ import {
   PlayArrow, Stop, CheckCircle, Error as ErrorIcon, Schedule,
   Folder, DeleteOutline, AddCircle, LocalOffer, Sync, Warning,
   Psychology, Code, Preview, MergeType, Search as SearchIcon,
-  AutoFixHigh, Subject
+  AutoFixHigh, Subject, CleaningServices
 } from '@mui/icons-material'
 import api from '../../services/api'
 
@@ -71,6 +71,7 @@ interface ExtractChange {
   book_id: number
   filename: string
   pattern_name?: string
+  reason?: string[]
   current: {
     title: string
     author: string | null
@@ -159,7 +160,7 @@ export default function LibrariesTab() {
   
   // AI/规则提取
   const [extractDialogOpen, setExtractDialogOpen] = useState(false)
-  const [extractType, setExtractType] = useState<'ai' | 'pattern'>('ai')
+  const [extractType, setExtractType] = useState<'ai' | 'pattern' | 'clean'>('ai')
   const [extractLoading, setExtractLoading] = useState(false)
   const [extractResult, setExtractResult] = useState<ExtractResult | null>(null)
   const [selectedChanges, setSelectedChanges] = useState<Set<number>>(new Set())
@@ -169,7 +170,7 @@ export default function LibrariesTab() {
   // 提取任务状态（显示进度条）
   interface ExtractTask {
     libraryId: number
-    type: 'ai' | 'pattern' | 'description'
+    type: 'ai' | 'pattern' | 'description' | 'clean'
     status: 'running' | 'completed' | 'failed'
     total: number
     applied: number
@@ -397,6 +398,31 @@ export default function LibrariesTab() {
     }
   }
 
+  // 元数据清洗
+  const handleMetadataClean = async (libraryId: number) => {
+    setExtractType('clean')
+    setExtractLoading(true)
+    setExtractResult(null)
+    setSelectedChanges(new Set())
+    setExtractDialogOpen(true)
+
+    try {
+      const response = await api.post(`/api/admin/ai/libraries/${libraryId}/metadata-clean`)
+      if (response.data.success) {
+        setExtractResult(response.data)
+        setSelectedChanges(new Set(response.data.changes.map((c: ExtractChange) => c.book_id)))
+      } else {
+        setError(response.data.error || '元数据清洗失败')
+        setExtractDialogOpen(false)
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || '元数据清洗失败')
+      setExtractDialogOpen(false)
+    } finally {
+      setExtractLoading(false)
+    }
+  }
+
   // 简介提取
   const handleExtractDescriptions = async (libraryId: number) => {
     const library = libraries.find(l => l.id === libraryId)
@@ -569,9 +595,11 @@ export default function LibrariesTab() {
     
     // 后台执行应用
     try {
-      const endpoint = type === 'ai' 
-        ? `/api/admin/ai/libraries/${libraryId}/ai-extract/apply`
-        : `/api/admin/ai/libraries/${libraryId}/pattern-extract/apply`
+    const endpoint = type === 'ai' 
+      ? `/api/admin/ai/libraries/${libraryId}/ai-extract/apply`
+      : type === 'pattern'
+        ? `/api/admin/ai/libraries/${libraryId}/pattern-extract/apply`
+        : `/api/admin/ai/libraries/${libraryId}/metadata-clean/apply`
       
       const response = await api.post(endpoint, { changes: changesToApply })
       
@@ -1366,19 +1394,27 @@ export default function LibrariesTab() {
                       >
                         <Psychology />
                       </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handlePatternExtract(library.id)}
-                        title="规则提取元数据"
-                        color="info"
-                      >
-                        <Code />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleExtractDescriptions(library.id)}
-                        title="提取简介"
-                        color="info"
+                        <IconButton
+                          size="small"
+                          onClick={() => handlePatternExtract(library.id)}
+                          title="规则提取元数据"
+                          color="info"
+                        >
+                          <Code />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleMetadataClean(library.id)}
+                          title="元数据清洗"
+                          color="warning"
+                        >
+                          <CleaningServices />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleExtractDescriptions(library.id)}
+                          title="提取简介"
+                          color="info"
                         disabled={isDescriptionExtracting}
                       >
                         {isDescriptionExtracting ? (
@@ -1459,18 +1495,22 @@ export default function LibrariesTab() {
                     <Box sx={{ mt: 2 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          {extractTask.type === 'ai' ? (
-                            <Psychology fontSize="small" />
-                          ) : extractTask.type === 'pattern' ? (
-                            <Code fontSize="small" />
-                          ) : (
-                            <Subject fontSize="small" />
-                          )}
-                          {extractTask.type === 'ai'
-                            ? 'AI提取'
-                            : extractTask.type === 'pattern'
-                              ? '规则提取'
-                              : '简介提取'}
+                            {extractTask.type === 'ai' ? (
+                              <Psychology fontSize="small" />
+                            ) : extractTask.type === 'pattern' ? (
+                              <Code fontSize="small" />
+                            ) : extractTask.type === 'clean' ? (
+                              <CleaningServices fontSize="small" />
+                            ) : (
+                              <Subject fontSize="small" />
+                            )}
+                            {extractTask.type === 'ai'
+                              ? 'AI提取'
+                              : extractTask.type === 'pattern'
+                                ? '规则提取'
+                                : extractTask.type === 'clean'
+                                  ? '元数据清洗'
+                                  : '简介提取'}
                           {extractTask.status === 'running' && '中...'}
                           {extractTask.status === 'completed' && ' 完成'}
                           {extractTask.status === 'failed' && ' 失败'}
@@ -2176,8 +2216,8 @@ export default function LibrariesTab() {
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {extractType === 'ai' ? <Psychology /> : <Code />}
-          {extractType === 'ai' ? 'AI提取预览' : '规则提取预览'}
+          {extractType === 'ai' ? <Psychology /> : extractType === 'pattern' ? <Code /> : <CleaningServices />}
+          {extractType === 'ai' ? 'AI提取预览' : extractType === 'pattern' ? '规则提取预览' : '元数据清洗预览'}
           {extractResult && (
             <Chip 
               label={`${extractResult.library_name}`} 
@@ -2192,7 +2232,11 @@ export default function LibrariesTab() {
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
               <CircularProgress size={48} />
               <Typography sx={{ mt: 2 }}>
-                {extractType === 'ai' ? '正在使用AI分析文件名...' : '正在使用规则匹配文件名...'}
+                {extractType === 'ai'
+                  ? '正在使用AI分析文件名...'
+                  : extractType === 'pattern'
+                    ? '正在使用规则匹配文件名...'
+                    : '正在清洗元数据...'}
               </Typography>
             </Box>
           ) : extractResult ? (
@@ -2226,13 +2270,14 @@ export default function LibrariesTab() {
                           <TableCell padding="checkbox">选择</TableCell>
                           <TableCell>文件名</TableCell>
                           {extractType === 'pattern' && <TableCell>匹配规则</TableCell>}
+                          {extractType === 'clean' && <TableCell>清洗原因</TableCell>}
                           <TableCell>当前书名</TableCell>
                           <TableCell>→</TableCell>
                           <TableCell>提取书名</TableCell>
                           <TableCell>当前作者</TableCell>
                           <TableCell>→</TableCell>
                           <TableCell>提取作者</TableCell>
-                          <TableCell>标签/额外信息</TableCell>
+                          {extractType === 'ai' && <TableCell>标签/额外信息</TableCell>}
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -2259,6 +2304,19 @@ export default function LibrariesTab() {
                             {extractType === 'pattern' && (
                               <TableCell>
                                 <Chip label={change.pattern_name} size="small" />
+                              </TableCell>
+                            )}
+                            {extractType === 'clean' && (
+                              <TableCell>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                                  {(change.reason || []).length > 0 ? (
+                                    change.reason!.map((item, i) => (
+                                      <Chip key={i} label={item} size="small" variant="outlined" />
+                                    ))
+                                  ) : (
+                                    <Typography variant="body2" color="text.secondary">-</Typography>
+                                  )}
+                                </Box>
                               </TableCell>
                             )}
                             <TableCell sx={{ color: 'text.secondary' }}>

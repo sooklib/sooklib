@@ -13,12 +13,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.database import get_db
 from app.models import Book, Library, FilenamePattern, Tag, User
 from app.web.routes.auth import get_current_admin, get_current_user
 from app.utils.logger import log
 from app.core.ai.service import get_ai_service
+from app.core.metadata.cleaner import (
+    clean_author,
+    clean_title,
+    get_filename_stem,
+    split_title_author,
+)
 from app.core.ai.config import ai_config
 
 router = APIRouter()
@@ -812,6 +819,144 @@ async def apply_ai_extract(
     
     await db.commit()
     
+    return {
+        "success": True,
+        "applied_count": applied_count
+    }
+
+
+@router.post("/libraries/{library_id}/metadata-clean")
+async def preview_metadata_clean(
+    library_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """批量清洗书库元数据（预览）"""
+    from app.models import BookVersion
+
+    result = await db.execute(select(Library).where(Library.id == library_id))
+    library = result.scalar_one_or_none()
+    if not library:
+        return {"success": False, "error": "书库不存在"}
+
+    result = await db.execute(
+        select(Book).options(joinedload(Book.author), joinedload(Book.versions)).where(Book.library_id == library_id)
+    )
+    books = result.unique().scalars().all()
+
+    changes = []
+
+    def is_same(left: Optional[str], right: Optional[str]) -> bool:
+        return (left or "").strip() == (right or "").strip()
+
+    for book in books:
+        primary_version = None
+        if book.versions:
+            primary_version = next((v for v in book.versions if v.is_primary), None)
+            if not primary_version:
+                primary_version = book.versions[0]
+
+        filename = primary_version.file_name if primary_version else None
+        filename_stem = get_filename_stem(filename)
+        filename_title, filename_author = split_title_author(filename_stem) if filename_stem else (None, None)
+
+        current_title = book.title or ""
+        current_author = book.author.name if book.author else None
+
+        new_title = clean_title(current_title) or None
+        new_author = clean_author(current_author)
+        reason = []
+
+        if new_title and not is_same(new_title, current_title):
+            reason.append("title_normalized")
+
+        if new_author and not is_same(new_author, current_author):
+            reason.append("author_normalized")
+
+        if (not new_title or is_same(current_title, filename_stem)) and filename_title:
+            if not is_same(filename_title, new_title):
+                new_title = filename_title
+                reason.append("title_from_filename")
+
+        if (not new_author) and filename_author:
+            new_author = filename_author
+            reason.append("author_from_filename")
+
+        if is_same(new_title, current_title) and is_same(new_author, current_author):
+            continue
+
+        if not new_title and not new_author:
+            continue
+
+        changes.append({
+            "book_id": book.id,
+            "filename": filename or current_title,
+            "current": {
+                "title": current_title,
+                "author": current_author
+            },
+            "extracted": {
+                "title": new_title,
+                "author": new_author
+            },
+            "reason": reason
+        })
+
+    return {
+        "success": True,
+        "library_id": library_id,
+        "library_name": library.name,
+        "total_books": len(books),
+        "changes": changes
+    }
+
+
+@router.post("/libraries/{library_id}/metadata-clean/apply")
+async def apply_metadata_clean(
+    library_id: int,
+    changes: List[dict] = None,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """应用元数据清洗变更"""
+    from app.models import Author
+
+    if not changes:
+        return {"success": False, "error": "没有变更数据"}
+
+    applied_count = 0
+    for change in changes:
+        try:
+            book_result = await db.execute(
+                select(Book).where(Book.id == change["book_id"])
+            )
+            book = book_result.scalar_one_or_none()
+            if not book:
+                continue
+
+            extracted = change.get("extracted", {})
+
+            if extracted.get("title"):
+                book.title = extracted["title"]
+
+            if extracted.get("author"):
+                author_result = await db.execute(
+                    select(Author).where(Author.name == extracted["author"])
+                )
+                author = author_result.scalar_one_or_none()
+                if not author:
+                    author = Author(name=extracted["author"])
+                    db.add(author)
+                    await db.flush()
+                book.author_id = author.id
+
+            applied_count += 1
+        except Exception as e:
+            log.error(f"应用清洗失败 book_id={change.get('book_id')}: {e}")
+            continue
+
+    await db.commit()
+
     return {
         "success": True,
         "applied_count": applied_count

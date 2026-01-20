@@ -336,9 +336,15 @@ async def list_books(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     author_id: Optional[int] = None,
+    author_ids: Optional[str] = Query(None, description="按作者筛选（逗号分隔的作者ID）"),
     library_id: Optional[int] = None,
     formats: Optional[str] = Query(None, description="按格式筛选（逗号分隔，如'txt,epub'）"),
     tag_ids: Optional[str] = Query(None, description="按标签筛选（逗号分隔的标签ID）"),
+    age_ratings: Optional[str] = Query(None, description="按内容分级筛选（逗号分隔，如'general,teen'）"),
+    min_size: Optional[int] = Query(None, ge=0, description="最小文件大小（字节）"),
+    max_size: Optional[int] = Query(None, ge=0, description="最大文件大小（字节）"),
+    added_from: Optional[date] = Query(None, description="添加时间起始（YYYY-MM-DD）"),
+    added_to: Optional[date] = Query(None, description="添加时间结束（YYYY-MM-DD）"),
     sort: Optional[str] = Query("added_at_desc", description="排序方式：added_at_desc, added_at_asc, title_asc, title_desc, size_desc, size_asc, format_asc, format_desc, rating_asc, rating_desc"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -347,9 +353,13 @@ async def list_books(
     获取用户有权访问的书籍列表，返回分页数据和总数
     支持筛选：
     - author_id: 按作者ID筛选
+    - author_ids: 按作者ID筛选（逗号分隔）
     - library_id: 按书库ID筛选
     - formats: 按格式筛选，多个格式用逗号分隔（如'txt,epub,mobi'）
     - tag_ids: 按标签筛选，多个标签ID用逗号分隔（如'1,2,3'）
+    - age_ratings: 按内容分级筛选
+    - min_size/max_size: 按文件大小筛选（字节）
+    - added_from/added_to: 按添加日期筛选
     支持排序：
     - added_at_desc/asc: 按添加时间排序
     - title_asc/desc: 按书名排序
@@ -379,7 +389,15 @@ async def list_books(
     
     if author_id:
         query = query.where(Book.author_id == author_id)
-    
+
+    if author_ids:
+        try:
+            author_id_list = [int(a.strip()) for a in author_ids.split(',') if a.strip()]
+            if author_id_list:
+                query = query.where(Book.author_id.in_(author_id_list))
+        except ValueError as e:
+            log.error(f"作者筛选解析错误: {e}")
+
     if library_id:
         # 确保请求的书库在可访问列表中
         if library_id not in accessible_library_ids:
@@ -391,6 +409,17 @@ async def list_books(
                 "total_pages": 0
             }
         query = query.where(Book.library_id == library_id)
+
+    if age_ratings:
+        rating_list = [r.strip().lower() for r in age_ratings.split(',') if r.strip()]
+        if rating_list:
+            query = query.where(func.lower(Book.age_rating).in_(rating_list))
+
+    if added_from:
+        query = query.where(cast(Book.added_at, Date) >= added_from)
+
+    if added_to:
+        query = query.where(cast(Book.added_at, Date) <= added_to)
     
     # 按格式筛选
     if formats:
@@ -518,6 +547,23 @@ async def list_books(
         elif sort_lower == "format_desc":
             filtered_books.sort(key=lambda b: (get_primary_version(b).file_format if get_primary_version(b) else ""), reverse=True)
     
+    # 按文件大小过滤（主版本）
+    if min_size is not None or max_size is not None:
+        def in_size_range(book):
+            primary_version = None
+            if book.versions:
+                primary_version = next((v for v in book.versions if v.is_primary), None)
+                if not primary_version:
+                    primary_version = book.versions[0] if book.versions else None
+            size = primary_version.file_size if primary_version else 0
+            if min_size is not None and size < min_size:
+                return False
+            if max_size is not None and size > max_size:
+                return False
+            return True
+
+        filtered_books = [book for book in filtered_books if in_size_range(book)]
+
     # 计算总数和分页
     total_count = len(filtered_books)
     total_pages = (total_count + limit - 1) // limit if total_count > 0 else 0
