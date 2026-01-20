@@ -77,6 +77,14 @@ class OPDSConfig(BaseModel):
     page_size: int = 50
 
 
+class ReleaseConfig(BaseModel):
+    """发布与更新配置"""
+    name: str = "Sooklib"
+    version: str = "1.0.0"
+    channel: str = "beta"
+    update_url: str = "https://raw.githubusercontent.com/Haruka041/sooklib-docs/main/update.json"
+
+
 class RBACConfig(BaseModel):
     """权限控制配置"""
     default_age_rating: str = "all"  # 新用户默认年龄分级限制
@@ -126,6 +134,7 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     opds: OPDSConfig = Field(default_factory=OPDSConfig)
+    release: ReleaseConfig = Field(default_factory=ReleaseConfig)
     rbac: RBACConfig = Field(default_factory=RBACConfig)
     cover: CoverConfig = Field(default_factory=CoverConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
@@ -162,6 +171,14 @@ class Config(BaseModel):
             config_data.setdefault("logging", {})["level"] = log_level
         if scan_interval := os.getenv("SCAN_INTERVAL"):
             config_data.setdefault("scanner", {})["interval"] = int(scan_interval)
+        if app_name := os.getenv("APP_NAME"):
+            config_data.setdefault("release", {})["name"] = app_name
+        if app_version := os.getenv("APP_VERSION"):
+            config_data.setdefault("release", {})["version"] = app_version
+        if app_channel := os.getenv("APP_CHANNEL"):
+            config_data.setdefault("release", {})["channel"] = app_channel
+        if update_url := os.getenv("UPDATE_URL"):
+            config_data.setdefault("release", {})["update_url"] = update_url
         
         return cls(**config_data)
 

@@ -26,4 +26,7 @@ services:
       - ADMIN_PASSWORD=CHANGE_THIS_PASSWORD
       # 请修改为随机密钥（可以使用：openssl rand -hex 32 生成）
       - SECRET_KEY=CHANGE_THIS_TO_RANDOM_STRING
+      # 版本与更新检测
+      - APP_CHANNEL=beta
+      - UPDATE_URL=https://raw.githubusercontent.com/Haruka041/sooklib-docs/main/update.json
     restart: unless-stopped

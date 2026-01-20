@@ -64,3 +64,10 @@ opds:
   author: "Sooklib"
   description: "个人小说收藏"
   page_size: 50
+
+# 发布与更新配置
+release:
+  name: "Sooklib"
+  version: "1.0.0"
+  channel: "beta"
+  update_url: "https://raw.githubusercontent.com/Haruka041/sooklib-docs/main/update.json"

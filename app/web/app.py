@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Sooklib",
     description="小说书库管理系统",
-    version="1.0.0",
+    version=settings.release.version,
     lifespan=lifespan,
 )
 
@@ -98,7 +98,11 @@ app.include_router(settings_routes.router, prefix="/api", tags=["系统设置"])
 @app.get("/api/health")
 async def health_check():
     """健康检查"""
-    return {"status": "healthy", "version": "1.0.0"}
+    return {
+        "status": "healthy",
+        "version": settings.release.version,
+        "channel": settings.release.channel,
+    }
 
 
 # ===========================================

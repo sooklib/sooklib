@@ -15,7 +15,7 @@ import {
   InputAdornment,
   IconButton,
 } from '@mui/material'
-import { Save, Telegram, Visibility, VisibilityOff, CheckCircle, Error } from '@mui/icons-material'
+import { Save, Telegram, Visibility, VisibilityOff, CheckCircle, Error, Refresh, OpenInNew } from '@mui/icons-material'
 import api from '../../services/api'
 import { useSettingsStore } from '../../stores/settingsStore'
 
@@ -32,6 +32,19 @@ interface TelegramSettings {
   bot_token_preview: string
   webhook_url: string
   max_file_size: number
+}
+
+interface UpdateCheckResult {
+  success: boolean
+  current_version: string
+  channel: string
+  latest_version?: string
+  update_available?: boolean
+  url?: string
+  notes?: string
+  published_at?: string
+  error?: string
+  source?: string
 }
 
 export default function SettingsTab() {
@@ -62,6 +75,9 @@ export default function SettingsTab() {
   const [telegramError, setTelegramError] = useState<string | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
+  const [updateLoading, setUpdateLoading] = useState(true)
+  const [updateError, setUpdateError] = useState<string | null>(null)
 
   // 获取 settingsStore 用于刷新
   const settingsStore = useSettingsStore()
@@ -69,6 +85,7 @@ export default function SettingsTab() {
   useEffect(() => {
     loadSettings()
     loadTelegramSettings()
+    loadUpdateInfo()
   }, [])
 
   const loadSettings = async () => {
@@ -93,6 +110,30 @@ export default function SettingsTab() {
       console.error('加载 Telegram 设置失败:', err)
     } finally {
       setTelegramLoading(false)
+    }
+  }
+
+  const loadUpdateInfo = async () => {
+    try {
+      setUpdateLoading(true)
+      setUpdateError(null)
+      const response = await api.get<UpdateCheckResult>('/api/update/check')
+      setUpdateInfo(response.data)
+      if (!response.data.success) {
+        setUpdateError(response.data.error || '更新检查失败')
+      }
+    } catch (err: unknown) {
+      console.error('更新检查失败:', err)
+      setUpdateError('更新检查失败')
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
+  const handleOpenUpdate = () => {
+    const url = updateInfo?.url || updateInfo?.source
+    if (url) {
+      window.open(url, '_blank')
     }
   }
 
@@ -187,6 +228,63 @@ export default function SettingsTab() {
 
   return (
     <Box>
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Typography variant="h6">版本与更新</Typography>
+            <Button
+              size="small"
+              startIcon={updateLoading ? <CircularProgress size={16} /> : <Refresh />}
+              onClick={loadUpdateInfo}
+              disabled={updateLoading}
+            >
+              {updateLoading ? '检查中...' : '检查更新'}
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            当前版本与更新通道信息
+          </Typography>
+          {updateError && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {updateError}
+            </Alert>
+          )}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Typography variant="body2">
+              当前版本：{updateInfo?.current_version || '未知'}
+            </Typography>
+            <Typography variant="body2">
+              更新通道：{updateInfo?.channel || 'beta'}
+            </Typography>
+            <Typography variant="body2">
+              最新版本：{updateInfo?.latest_version || '未知'}
+            </Typography>
+            {updateInfo?.update_available && (
+              <Alert
+                severity="info"
+                action={
+                  <Button
+                    color="inherit"
+                    size="small"
+                    startIcon={<OpenInNew />}
+                    onClick={handleOpenUpdate}
+                  >
+                    查看
+                  </Button>
+                }
+              >
+                检测到新版本可用
+              </Alert>
+            )}
+            {updateInfo?.notes && (
+              <Typography variant="body2" color="text.secondary">
+                更新说明：{updateInfo.notes}
+              </Typography>
+            )}
+          </Box>
+        </CardContent>
+      </Card>
+
       {success && (
         <Alert severity="success" sx={{ mb: 2 }}>
           设置保存成功！

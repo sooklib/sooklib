@@ -92,6 +92,33 @@ services:
 | `SECRET_KEY` | JWT密钥 | (必须修改) |
 | `LOG_LEVEL` | 日志级别 | INFO |
 | `TZ` | 时区 | Asia/Shanghai |
+| `APP_VERSION` | 当前版本号（用于更新检测） | 1.0.0 |
+| `APP_CHANNEL` | 更新通道（beta/stable） | beta |
+| `UPDATE_URL` | 更新信息地址（update.json） | https://raw.githubusercontent.com/Haruka041/sooklib-docs/main/update.json |
+
+### 更新检测
+
+Sooklib 会读取 `update.json` 来判断是否有新版本。建议在公开文档仓库中维护：
+`https://github.com/Haruka041/sooklib-docs`
+
+示例格式：
+
+```json
+{
+  "stable": {
+    "version": "v1.2.3",
+    "url": "https://github.com/Haruka041/sooklib/releases/tag/v1.2.3",
+    "notes": "稳定版更新说明",
+    "published_at": "2026-01-20"
+  },
+  "beta": {
+    "version": "beta-abcdef1",
+    "url": "https://github.com/Haruka041/sooklib",
+    "notes": "测试版更新说明",
+    "published_at": "2026-01-20"
+  }
+}
+```
 
 ## 📁 项目结构
 

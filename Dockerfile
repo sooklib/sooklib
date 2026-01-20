@@ -23,6 +23,12 @@ RUN npm run build
 # ===========================================
 FROM python:3.11-slim
 
+# 构建信息
+ARG APP_VERSION="1.0.0"
+ARG APP_CHANNEL="beta"
+ENV APP_VERSION=${APP_VERSION}
+ENV APP_CHANNEL=${APP_CHANNEL}
+
 # 设置工作目录
 WORKDIR /app
 

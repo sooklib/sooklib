@@ -277,3 +277,107 @@ async def test_telegram_connection(
             "success": False,
             "error": str(e)
         }
+
+
+def _normalize_version(value: str) -> tuple[int, int, int, str]:
+    if not value:
+        return 0, 0, 0, ""
+    version = value.strip().lstrip("v")
+    base, _, suffix = version.partition("-")
+    parts = base.split(".")
+    try:
+        major = int(parts[0]) if len(parts) > 0 else 0
+    except ValueError:
+        major = 0
+    try:
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        minor = 0
+    try:
+        patch = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        patch = 0
+    return major, minor, patch, suffix
+
+
+def _is_newer_version(current: str, latest: str) -> bool:
+    current_tuple = _normalize_version(current)
+    latest_tuple = _normalize_version(latest)
+    if current_tuple[:3] != latest_tuple[:3]:
+        return latest_tuple[:3] > current_tuple[:3]
+    current_suffix = current_tuple[3]
+    latest_suffix = latest_tuple[3]
+    if current_suffix == latest_suffix:
+        return False
+    if not latest_suffix:
+        return True
+    if not current_suffix:
+        return False
+    return latest_suffix > current_suffix
+
+
+@router.get("/version")
+async def get_version_info():
+    """获取当前版本信息"""
+    return {
+        "name": app_settings.release.name,
+        "version": app_settings.release.version,
+        "channel": app_settings.release.channel,
+        "update_url": app_settings.release.update_url,
+    }
+
+
+@router.get("/update/check")
+async def check_update():
+    """检查是否有新版本"""
+    update_url = app_settings.release.update_url
+    current_version = app_settings.release.version
+    channel = app_settings.release.channel
+
+    if not update_url:
+        return {
+            "success": False,
+            "error": "未配置更新地址",
+            "current_version": current_version,
+            "channel": channel,
+        }
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(update_url, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+    except Exception as e:
+        log.error(f"更新检查失败: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "current_version": current_version,
+            "channel": channel,
+            "source": update_url,
+        }
+
+    channel_key = "beta" if channel == "beta" else "stable"
+    latest_info = data.get(channel_key) or {}
+    latest_version = str(latest_info.get("version", "") or "")
+
+    update_available = False
+    if latest_version:
+        if channel_key == "stable":
+            update_available = _is_newer_version(current_version, latest_version)
+        else:
+            update_available = current_version != latest_version
+
+    return {
+        "success": True,
+        "current_version": current_version,
+        "channel": channel,
+        "latest_version": latest_version,
+        "update_available": update_available,
+        "url": latest_info.get("url") or latest_info.get("download_url"),
+        "notes": latest_info.get("notes"),
+        "published_at": latest_info.get("published_at"),
+        "source": update_url,
+    }
