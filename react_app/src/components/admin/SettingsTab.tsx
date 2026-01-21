@@ -24,6 +24,11 @@ interface SystemSettings {
   server_description: string
   welcome_message: string
   registration_enabled: boolean
+  chapter_patterns_strong?: string[]
+  chapter_patterns_weak?: string[]
+  chapter_inline_pattern?: string
+  chapter_max_title_length?: number
+  chapter_min_gap?: number
 }
 
 interface TelegramSettings {
@@ -47,13 +52,38 @@ interface UpdateCheckResult {
   source?: string
 }
 
+const DEFAULT_CHAPTER_STRONG_PATTERNS = [
+  '^第[零一二三四五六七八九十百千万亿\\d]+[章节卷集部篇回].*$',
+  '^(正文\\s*)?第[零一二三四五六七八九十百千万亿\\d]+[章节卷集部篇回].*$',
+  '^Chapter\\s+\\d+.*$',
+  '^卷[零一二三四五六七八九十百千万亿\\d]+.*$',
+  '^(序章|楔子|引子|前言|后记|尾声|番外|终章|大结局).*$',
+  '^[【\\[\\(].+[】\\]\\)]$',
+]
+const DEFAULT_CHAPTER_WEAK_PATTERNS = [
+  '^\\d{1,4}[\\.、]\\s*.*$',
+  '^\\d{1,4}\\s+.*$',
+]
+const DEFAULT_CHAPTER_INLINE_PATTERN = '(正文\\s*)?第[零一二三四五六七八九十百千万亿\\d]+[章节卷集部篇回][^\\n]{0,40}'
+
 export default function SettingsTab() {
   const [settings, setSettings] = useState<SystemSettings>({
     server_name: '小说书库',
     server_description: '',
     welcome_message: '',
     registration_enabled: true,
+    chapter_patterns_strong: DEFAULT_CHAPTER_STRONG_PATTERNS,
+    chapter_patterns_weak: DEFAULT_CHAPTER_WEAK_PATTERNS,
+    chapter_inline_pattern: DEFAULT_CHAPTER_INLINE_PATTERN,
+    chapter_max_title_length: 50,
+    chapter_min_gap: 40,
   })
+  const [chapterStrongText, setChapterStrongText] = useState(
+    DEFAULT_CHAPTER_STRONG_PATTERNS.join('\n')
+  )
+  const [chapterWeakText, setChapterWeakText] = useState(
+    DEFAULT_CHAPTER_WEAK_PATTERNS.join('\n')
+  )
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -91,8 +121,31 @@ export default function SettingsTab() {
   const loadSettings = async () => {
     try {
       setLoading(true)
-      const response = await api.get<SystemSettings>('/api/settings')
-      setSettings(response.data)
+      const response = await api.get<SystemSettings>('/api/admin/settings')
+      const data = response.data || {}
+      const strongPatterns = Array.isArray(data.chapter_patterns_strong) && data.chapter_patterns_strong.length > 0
+        ? data.chapter_patterns_strong
+        : DEFAULT_CHAPTER_STRONG_PATTERNS
+      const weakPatterns = Array.isArray(data.chapter_patterns_weak) && data.chapter_patterns_weak.length > 0
+        ? data.chapter_patterns_weak
+        : DEFAULT_CHAPTER_WEAK_PATTERNS
+      const inlinePattern = data.chapter_inline_pattern || DEFAULT_CHAPTER_INLINE_PATTERN
+      const maxTitleLen = typeof data.chapter_max_title_length === 'number' ? data.chapter_max_title_length : 50
+      const minGap = typeof data.chapter_min_gap === 'number' ? data.chapter_min_gap : 40
+
+      setSettings({
+        server_name: data.server_name || '小说书库',
+        server_description: data.server_description || '',
+        welcome_message: data.welcome_message || '',
+        registration_enabled: Boolean(data.registration_enabled),
+        chapter_patterns_strong: strongPatterns,
+        chapter_patterns_weak: weakPatterns,
+        chapter_inline_pattern: inlinePattern,
+        chapter_max_title_length: maxTitleLen,
+        chapter_min_gap: minGap,
+      })
+      setChapterStrongText(strongPatterns.join('\n'))
+      setChapterWeakText(weakPatterns.join('\n'))
     } catch (err: unknown) {
       console.error('加载设置失败:', err)
       setError('加载设置失败')
@@ -196,13 +249,25 @@ export default function SettingsTab() {
     }
   }
 
+  const parsePatternText = (text: string) =>
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+
   const handleSave = async () => {
     try {
       setSaving(true)
       setError(null)
       setSuccess(false)
       
-      await api.put('/api/admin/settings', settings)
+      const payload: SystemSettings = {
+        ...settings,
+        chapter_patterns_strong: parsePatternText(chapterStrongText),
+        chapter_patterns_weak: parsePatternText(chapterWeakText),
+        chapter_inline_pattern: settings.chapter_inline_pattern?.trim() || DEFAULT_CHAPTER_INLINE_PATTERN,
+      }
+      await api.put('/api/admin/settings', payload)
       setSuccess(true)
       
       // 重置 serverSettingsLoaded 以便刷新全局设置
@@ -354,6 +419,69 @@ export default function SettingsTab() {
           <Typography variant="body2" color="text.secondary">
             关闭后，只有管理员可以创建新用户
           </Typography>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            TXT 章节识别规则
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            一行一个正则表达式。强规则用于整行匹配，弱规则仅在前后有空行时才生效。
+          </Typography>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <TextField
+              label="强规则（整行匹配）"
+              value={chapterStrongText}
+              onChange={(e) => setChapterStrongText(e.target.value)}
+              multiline
+              rows={6}
+              fullWidth
+            />
+
+            <TextField
+              label="弱规则（需要空行邻居）"
+              value={chapterWeakText}
+              onChange={(e) => setChapterWeakText(e.target.value)}
+              multiline
+              rows={4}
+              fullWidth
+            />
+
+            <TextField
+              label="内联规则（行内匹配）"
+              value={settings.chapter_inline_pattern || ''}
+              onChange={(e) => setSettings({ ...settings, chapter_inline_pattern: e.target.value })}
+              fullWidth
+            />
+
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField
+                label="章节标题最大长度"
+                type="number"
+                value={settings.chapter_max_title_length ?? 50}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    chapter_max_title_length: Number(e.target.value) || 50,
+                  })
+                }
+              />
+              <TextField
+                label="章节间最小距离"
+                type="number"
+                value={settings.chapter_min_gap ?? 40}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    chapter_min_gap: Math.max(0, Number(e.target.value) || 0),
+                  })
+                }
+              />
+            </Box>
+          </Box>
         </CardContent>
       </Card>
 

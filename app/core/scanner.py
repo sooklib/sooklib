@@ -81,9 +81,9 @@ class Scanner:
             "error_details": [],  # 存储详细错误信息
         }
         
-        # 扫描所有文件
-        files = self._discover_files(library_path)
-        log.info(f"发现 {len(files)} 个文件")
+        # 扫描所有文件（生成器，避免一次性加载到内存）
+        files = self._discover_files_generator(library_path)
+        log.info("开始遍历书库文件（生成器模式）")
         
         # 批处理计数器，用于触发GC
         processed_count = 0

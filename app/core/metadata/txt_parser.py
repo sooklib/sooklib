@@ -40,6 +40,24 @@ class TxtParser:
         # 【作者】书名.txt
         (r'^【(.+?)】(.+?)\.txt$', 1, 2, '【作者】书名格式'),
     ]
+
+    DEFAULT_CHAPTER_SETTINGS = {
+        "chapter_max_title_length": 50,
+        "chapter_min_gap": 40,
+        "chapter_patterns_strong": [
+            r'^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+            r'^(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+            r'^Chapter\s+\d+.*$',
+            r'^卷[零一二三四五六七八九十百千万亿\d]+.*$',
+            r'^(序章|楔子|引子|前言|后记|尾声|番外|终章|大结局).*$',
+            r'^[【\[\(].+[】\]\)]$',
+        ],
+        "chapter_patterns_weak": [
+            r'^\d{1,4}[\.、]\s*.*$',
+            r'^\d{1,4}\s+.*$',
+        ],
+        "chapter_inline_pattern": r'(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回][^\n]{0,40}',
+    }
     
     def __init__(self, db: Optional[AsyncSession] = None):
         """
@@ -51,6 +69,52 @@ class TxtParser:
         self.db = db
         self.custom_patterns: List[Tuple] = []
         self.pattern_stats: Dict[int, Dict] = {}  # pattern_id -> {matches, successes}
+
+    def _load_chapter_settings(self) -> Dict:
+        settings = dict(self.DEFAULT_CHAPTER_SETTINGS)
+        settings_file = Path("config/system_settings.json")
+
+        if settings_file.exists():
+            try:
+                data = json.loads(settings_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                log.warning(f"加载章节规则设置失败，使用默认值: {e}")
+                data = {}
+
+            strong = data.get("chapter_patterns_strong")
+            if isinstance(strong, list):
+                strong = [item.strip() for item in strong if isinstance(item, str) and item.strip()]
+                if strong:
+                    settings["chapter_patterns_strong"] = strong
+
+            weak = data.get("chapter_patterns_weak")
+            if isinstance(weak, list):
+                weak = [item.strip() for item in weak if isinstance(item, str) and item.strip()]
+                if weak:
+                    settings["chapter_patterns_weak"] = weak
+
+            inline_pattern = data.get("chapter_inline_pattern")
+            if isinstance(inline_pattern, str) and inline_pattern.strip():
+                settings["chapter_inline_pattern"] = inline_pattern.strip()
+
+            max_title_len = data.get("chapter_max_title_length")
+            if isinstance(max_title_len, int) and max_title_len > 0:
+                settings["chapter_max_title_length"] = max_title_len
+
+            min_gap = data.get("chapter_min_gap")
+            if isinstance(min_gap, int) and min_gap >= 0:
+                settings["chapter_min_gap"] = min_gap
+
+        return settings
+
+    def _compile_patterns(self, patterns: List[str], label: str) -> List[re.Pattern]:
+        regexes = []
+        for pattern in patterns:
+            try:
+                regexes.append(re.compile(pattern, re.IGNORECASE))
+            except re.error as e:
+                log.warning(f"章节规则无效，已跳过: {label} -> {pattern} ({e})")
+        return regexes
         
     def parse_toc(self, file_path: Path) -> List[Dict]:
         """
@@ -64,7 +128,9 @@ class TxtParser:
         """
         try:
             stat = file_path.stat()
-            cache_key = (str(file_path), stat.st_mtime, stat.st_size)
+            settings_file = Path("config/system_settings.json")
+            settings_mtime = settings_file.stat().st_mtime if settings_file.exists() else None
+            cache_key = (str(file_path), stat.st_mtime, stat.st_size, settings_mtime)
             
             if cache_key in _toc_cache:
                 return _toc_cache[cache_key]
@@ -225,24 +291,16 @@ class TxtParser:
 
     def _parse_chapters(self, content: str) -> List[Dict]:
         """解析章节列表"""
-        max_title_len = 50
-        min_gap = 40
-        strong_patterns = [
-            r'^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
-            r'^(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
-            r'^Chapter\s+\d+.*$',
-            r'^卷[零一二三四五六七八九十百千万亿\d]+.*$',
-            r'^(序章|楔子|引子|前言|后记|尾声|番外|终章|大结局).*$',
-            r'^[【\[\(].+[】\]\)]$',
-        ]
-        weak_patterns = [
-            r'^\d{1,4}[\.、]\s*.*$',
-            r'^\d{1,4}\s+.*$',
-        ]
-        inline_strong = re.compile(
-            r'(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回][^\n]{0,40}',
-            re.IGNORECASE
-        )
+        chapter_settings = self._load_chapter_settings()
+        max_title_len = chapter_settings.get("chapter_max_title_length", 50)
+        min_gap = chapter_settings.get("chapter_min_gap", 40)
+        strong_patterns = chapter_settings.get("chapter_patterns_strong", [])
+        weak_patterns = chapter_settings.get("chapter_patterns_weak", [])
+        inline_pattern = chapter_settings.get("chapter_inline_pattern", "")
+        if not isinstance(max_title_len, int) or max_title_len <= 0:
+            max_title_len = 50
+        if not isinstance(min_gap, int) or min_gap < 0:
+            min_gap = 40
 
         lines = content.split('\n')
         offsets = []
@@ -252,8 +310,18 @@ class TxtParser:
             pos += len(line) + 1
 
         candidates = []
-        strong_regexes = [re.compile(p, re.IGNORECASE) for p in strong_patterns]
-        weak_regexes = [re.compile(p, re.IGNORECASE) for p in weak_patterns]
+        strong_regexes = self._compile_patterns(strong_patterns, "strong")
+        weak_regexes = self._compile_patterns(weak_patterns, "weak")
+        inline_strong = None
+        if isinstance(inline_pattern, str) and inline_pattern.strip():
+            try:
+                inline_strong = re.compile(inline_pattern.strip(), re.IGNORECASE)
+            except re.error as e:
+                log.warning(f"章节内联规则无效，使用默认值: {e}")
+                inline_strong = re.compile(
+                    self.DEFAULT_CHAPTER_SETTINGS["chapter_inline_pattern"],
+                    re.IGNORECASE
+                )
 
         for i, raw_line in enumerate(lines):
             line = raw_line.strip()
@@ -291,7 +359,7 @@ class TxtParser:
                         found = True
                         break
 
-            if not found:
+            if not found and inline_strong:
                 match = inline_strong.search(line)
                 if match:
                     title = match.group().strip()

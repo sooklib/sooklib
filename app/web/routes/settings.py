@@ -2,7 +2,7 @@
 系统设置 API 路由
 """
 import json
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,6 +28,21 @@ DEFAULT_SETTINGS = {
     "registration_enabled": False,
     "default_theme": "system",
     "default_cover_size": "medium",
+    "chapter_max_title_length": 50,
+    "chapter_min_gap": 40,
+    "chapter_patterns_strong": [
+        r'^第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+        r'^(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回].*$',
+        r'^Chapter\s+\d+.*$',
+        r'^卷[零一二三四五六七八九十百千万亿\d]+.*$',
+        r'^(序章|楔子|引子|前言|后记|尾声|番外|终章|大结局).*$',
+        r'^[【\[\(].+[】\]\)]$',
+    ],
+    "chapter_patterns_weak": [
+        r'^\d{1,4}[\.、]\s*.*$',
+        r'^\d{1,4}\s+.*$',
+    ],
+    "chapter_inline_pattern": r'(正文\s*)?第[零一二三四五六七八九十百千万亿\d]+[章节卷集部篇回][^\n]{0,40}',
 }
 
 # Telegram 默认设置
@@ -72,6 +87,11 @@ class SettingsUpdate(BaseModel):
     registration_enabled: Optional[bool] = None
     default_theme: Optional[str] = None
     default_cover_size: Optional[str] = None
+    chapter_max_title_length: Optional[int] = None
+    chapter_min_gap: Optional[int] = None
+    chapter_patterns_strong: Optional[List[str]] = None
+    chapter_patterns_weak: Optional[List[str]] = None
+    chapter_inline_pattern: Optional[str] = None
 
 
 class TelegramSettingsUpdate(BaseModel):
