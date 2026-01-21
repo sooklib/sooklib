@@ -1,4 +1,4 @@
-import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton, Chip, Button, IconButton, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Paper } from '@mui/material'
+import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton, Chip, Button, IconButton, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Paper, TextField } from '@mui/material'
 import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout, PhotoSizeSelectLarge, ViewList, AllInclusive, Palette, Image, Check, Telegram, Link, LinkOff, ContentCopy, CheckCircle, TrendingUp, Notes, Bookmark, FormatQuote, MenuBook } from '@mui/icons-material'
 import { useAuthStore } from '../stores/authStore'
 import { useThemeStore, PRESET_COLORS } from '../stores/themeStore'
@@ -54,6 +54,13 @@ export default function ProfilePage() {
   const [bindCodeLoading, setBindCodeLoading] = useState(false)
   const [unbindLoading, setUnbindLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({
+    current: '',
+    next: '',
+    confirm: ''
+  })
 
   // 获取统计数据
   useEffect(() => {
@@ -171,6 +178,46 @@ export default function ProfilePage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
+    }
+  }
+
+  const handleOpenPasswordDialog = () => {
+    setPasswordDialogOpen(true)
+  }
+
+  const handleClosePasswordDialog = () => {
+    setPasswordDialogOpen(false)
+    setPasswordForm({ current: '', next: '', confirm: '' })
+  }
+
+  const handlePasswordSubmit = async () => {
+    if (!passwordForm.current || !passwordForm.next || !passwordForm.confirm) {
+      setSnackbar({ open: true, message: '请填写完整的密码信息', severity: 'error' })
+      return
+    }
+    if (passwordForm.next.length < 6) {
+      setSnackbar({ open: true, message: '新密码长度至少为 6 位', severity: 'error' })
+      return
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setSnackbar({ open: true, message: '两次输入的新密码不一致', severity: 'error' })
+      return
+    }
+
+    try {
+      setPasswordSaving(true)
+      await api.put('/api/user/password', {
+        current_password: passwordForm.current,
+        new_password: passwordForm.next,
+        confirm_password: passwordForm.confirm
+      })
+      setSnackbar({ open: true, message: '密码已更新', severity: 'success' })
+      handleClosePasswordDialog()
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '修改密码失败'
+      setSnackbar({ open: true, message, severity: 'error' })
+    } finally {
+      setPasswordSaving(false)
     }
   }
 
@@ -581,7 +628,7 @@ export default function ProfilePage() {
       {/* 账户设置卡片 */}
       <Card>
         <List>
-          <ListItem button>
+          <ListItem button onClick={handleOpenPasswordDialog}>
             <ListItemIcon>
               <Lock />
             </ListItemIcon>
@@ -653,6 +700,44 @@ export default function ProfilePage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBindDialogOpen(false)}>关闭</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 修改密码对话框 */}
+      <Dialog open={passwordDialogOpen} onClose={handleClosePasswordDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>修改密码</DialogTitle>
+        <DialogContent>
+          <TextField
+            label="当前密码"
+            type="password"
+            fullWidth
+            margin="dense"
+            value={passwordForm.current}
+            onChange={(event) => setPasswordForm(prev => ({ ...prev, current: event.target.value }))}
+          />
+          <TextField
+            label="新密码"
+            type="password"
+            fullWidth
+            margin="dense"
+            value={passwordForm.next}
+            onChange={(event) => setPasswordForm(prev => ({ ...prev, next: event.target.value }))}
+            helperText="至少 6 位"
+          />
+          <TextField
+            label="确认新密码"
+            type="password"
+            fullWidth
+            margin="dense"
+            value={passwordForm.confirm}
+            onChange={(event) => setPasswordForm(prev => ({ ...prev, confirm: event.target.value }))}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePasswordDialog} disabled={passwordSaving}>取消</Button>
+          <Button onClick={handlePasswordSubmit} variant="contained" disabled={passwordSaving}>
+            {passwordSaving ? '保存中...' : '保存'}
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -18,6 +18,7 @@ from app.utils.logger import log
 from app.bot.handlers import generate_bind_code, cleanup_expired_codes
 from app.config import settings
 from app.web.routes.settings import load_telegram_settings
+from app.security import verify_password, hash_password
 
 router = APIRouter()
 
@@ -56,6 +57,13 @@ class PersonalTagResponse(BaseModel):
 class UserSettingsUpdate(BaseModel):
     """用户设置更新请求"""
     age_rating_limit: Optional[str] = None  # 'all', 'teen', 'adult'
+
+
+class PasswordChangeRequest(BaseModel):
+    """修改密码请求"""
+    current_password: str
+    new_password: str
+    confirm_password: Optional[str] = None
 
 
 # ===== 收藏管理 =====
@@ -529,6 +537,55 @@ async def update_user_settings(
         "status": "success",
         "age_rating_limit": current_user.age_rating_limit
     }
+
+
+@router.put("/password")
+async def change_password(
+    password_data: PasswordChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    修改当前用户密码
+    
+    Args:
+        password_data: 密码变更数据
+        db: 数据库会话
+        current_user: 当前用户
+        
+    Returns:
+        操作结果
+    """
+    if not verify_password(password_data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码不正确"
+        )
+
+    if password_data.confirm_password is not None and password_data.new_password != password_data.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="两次输入的新密码不一致"
+        )
+
+    if len(password_data.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码长度至少为 6 位"
+        )
+
+    if verify_password(password_data.new_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码不能与当前密码相同"
+        )
+
+    current_user.password_hash = hash_password(password_data.new_password)
+    await db.commit()
+
+    log.info(f"用户 {current_user.username} 修改了密码")
+
+    return {"status": "success", "message": "密码已更新"}
 
 
 # ===== Telegram 绑定管理 =====
