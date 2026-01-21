@@ -154,15 +154,23 @@ class TxtParser:
 
     def read_preview(self, file_path: Path, max_chars: int = 5000) -> Optional[str]:
         """读取文件前N字符用于简介/标签提取"""
-        return self._read_file_content(file_path, max_chars=max_chars)
+        return self._read_file_content(file_path, max_chars=max_chars, allow_binary=True)
 
-    def _read_file_content(self, file_path: Path, max_chars: Optional[int] = None) -> Optional[str]:
+    def _read_file_content(
+        self,
+        file_path: Path,
+        max_chars: Optional[int] = None,
+        allow_binary: bool = False
+    ) -> Optional[str]:
         """读取文件内容（尝试多种编码）"""
         import chardet
 
-        if self._is_probably_binary_file(file_path):
+        is_binary = self._is_probably_binary_file(file_path)
+        if is_binary and not allow_binary:
             log.warning(f"疑似二进制文件，跳过读取: {file_path.name}")
             return None
+        if is_binary and allow_binary:
+            log.warning(f"疑似二进制文件，尝试宽松读取: {file_path.name}")
         
         def decode_quality(text: str) -> float:
             if not text:
@@ -239,18 +247,35 @@ class TxtParser:
             return detected
 
         encoding = choose_encoding()
-        if not encoding:
-            return None
+        candidates = []
+        if encoding:
+            candidates.append(encoding)
 
-        try:
-            with open(file_path, 'r', encoding=encoding, errors='replace') as f:
-                content = f.read() if max_chars is None else f.read(max_chars)
-            if decode_quality(content[:10000]) > 0.2:
-                log.warning(f"编码 {encoding} 读取质量较差: {file_path.name}")
-            return self._clean_content(content)
-        except Exception as e:
-            log.error(f"使用编码 {encoding} 读取失败: {e}")
-            return None
+        if allow_binary:
+            for fallback in ['utf-8', 'gb18030', 'gbk', 'big5', 'latin-1']:
+                if fallback not in candidates:
+                    candidates.append(fallback)
+
+        last_error = None
+        for enc in candidates:
+            try:
+                with open(file_path, 'r', encoding=enc, errors='replace') as f:
+                    content = f.read() if max_chars is None else f.read(max_chars)
+                if not content:
+                    continue
+                quality = decode_quality(content[:10000])
+                if allow_binary and quality > 0.35:
+                    continue
+                if quality > 0.2:
+                    log.warning(f"编码 {enc} 读取质量较差: {file_path.name}")
+                return self._clean_content(content)
+            except Exception as e:
+                last_error = e
+                continue
+
+        if last_error:
+            log.error(f"读取内容失败: {file_path.name}, 错误: {last_error}")
+        return None
 
     def _clean_content(self, content: str) -> str:
         """清理内容"""
