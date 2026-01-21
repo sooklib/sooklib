@@ -36,7 +36,7 @@ Sooklib 是一个以书库为核心、对标 Emby 的书城/书库项目，强�
 mkdir sooklib && cd sooklib
 
 # 2. 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.comharuka041/sooklib/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/sooklib/sooklib/main/docker-compose.yml
 
 # 3. 修改配置（书库路径、密钥等）
 vim docker-compose.yml
@@ -55,7 +55,7 @@ version: '3.8'
 
 services:
   sooklib:
-    image: ghcr.io/sooklib/sooklib:latest
+    image: ghcr.io/sooklib/sooklib:beta
     container_name: sooklib
     ports:
       - "8080:8080"
@@ -94,7 +94,7 @@ services:
 | `TZ` | 时区 | Asia/Shanghai |
 | `APP_VERSION` | 当前版本号（用于更新检测） | 1.0.0 |
 | `APP_CHANNEL` | 更新通道（beta/stable） | beta |
-| `UPDATE_URL` | 更新信息地址（update.json） | https://raw.githubusercontent.comharuka041/sooklib-docs/main/update.json |
+| `UPDATE_URL` | 更新信息地址（update.json） | https://raw.githubusercontent.com/sooklib/sooklib-docs/main/update.json |
 
 更新检测基于 `update.json`，示例格式：
 
@@ -102,13 +102,13 @@ services:
 {
   "stable": {
     "version": "v1.2.3",
-    "url": "https://github.comharuka041/sooklib/releases/tag/v1.2.3",
+    "url": "https://github.com/sooklib/sooklib/releases/tag/v1.2.3",
     "notes": "稳定版更新说明",
     "published_at": "2026-01-20"
   },
   "beta": {
     "version": "beta-abcdef1",
-    "url": "https://github.comharuka041/sooklib",
+    "url": "https://github.com/sooklib/sooklib",
     "notes": "测试版更新说明",
     "published_at": "2026-01-20"
   }
@@ -140,13 +140,13 @@ OPDS 使用 HTTP Basic Auth：
 
 ## 文档
 
-- 文档仓库：https://github.comharuka041/sooklib-docs
-- 快速开始：https://github.comharuka041/sooklib-docs/blob/main/docs/getting-started.md
-- Docker 部署：https://github.comharuka041/sooklib-docs/blob/main/docs/docker-deployment.md
-- 配置说明：https://github.comharuka041/sooklib-docs/blob/main/docs/configuration.md
-- 更新通道：https://github.comharuka041/sooklib-docs/blob/main/docs/update-channel.md
-- Telegram 机器人：https://github.comharuka041/sooklib-docs/blob/main/docs/telegram-bot.md
-- AI 功能：https://github.comharuka041/sooklib-docs/blob/main/docs/ai-features.md
+- 文档仓库：https://github.com/sooklib/sooklib-docs
+- 快速开始：https://github.com/sooklib/sooklib-docs/blob/main/docs/getting-started.md
+- Docker 部署：https://github.com/sooklib/sooklib-docs/blob/main/docs/docker-deployment.md
+- 配置说明：https://github.com/sooklib/sooklib-docs/blob/main/docs/configuration.md
+- 更新通道：https://github.com/sooklib/sooklib-docs/blob/main/docs/update-channel.md
+- Telegram 机器人：https://github.com/sooklib/sooklib-docs/blob/main/docs/telegram-bot.md
+- AI 功能：https://github.com/sooklib/sooklib-docs/blob/main/docs/ai-features.md
 
 ## 开发
 
@@ -171,8 +171,8 @@ MIT License
 
 ## 贡献
 
-- Issue：https://github.comharuka041/sooklib/issues
-- PR：https://github.comharuka041/sooklib/pulls
+- Issue：https://github.com/sooklib/sooklib/issues
+- PR：https://github.com/sooklib/sooklib/pulls
 
 ---
 
