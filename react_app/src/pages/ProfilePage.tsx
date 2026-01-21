@@ -1,40 +1,21 @@
-import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, ToggleButtonGroup, ToggleButton, Chip, Button, IconButton, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material'
-import { Person, Lock, History, Favorite, DarkMode, LightMode, SettingsBrightness, Logout, PhotoSizeSelectLarge, ViewList, AllInclusive, Palette, Image, Check, Telegram, Link, LinkOff, ContentCopy, CheckCircle, TrendingUp, FormatQuote } from '@mui/icons-material'
+import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, Chip, Button, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material'
+import { Person, Lock, History, Favorite, Logout, TrendingUp, FormatQuote, Settings } from '@mui/icons-material'
 import { useAuthStore } from '../stores/authStore'
-import { useThemeStore, PRESET_COLORS } from '../stores/themeStore'
-import { useSettingsStore } from '../stores/settingsStore'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
-import { extractDominantColor } from '../utils/colorUtils'
 
 export default function ProfilePage() {
   const { user, logout } = useAuthStore()
-  const { preference, setPreference, primaryColor, setPrimaryColor } = useThemeStore()
-  const { coverSize, setCoverSize, paginationMode, setPaginationMode } = useSettingsStore()
   const navigate = useNavigate()
   const [favoriteCount, setFavoriteCount] = useState(0)
   const [historyCount, setHistoryCount] = useState(0)
-  const [extracting, setExtracting] = useState(false)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
     severity: 'success'
   })
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Telegram 绑定状态
-  const [telegramStatus, setTelegramStatus] = useState<{
-    is_bound: boolean
-    telegram_id: number | null
-    bot_enabled: boolean
-  } | null>(null)
-  const [telegramLoading, setTelegramLoading] = useState(true)
-  const [bindCode, setBindCode] = useState<string | null>(null)
-  const [bindDialogOpen, setBindDialogOpen] = useState(false)
-  const [bindCodeLoading, setBindCodeLoading] = useState(false)
-  const [unbindLoading, setUnbindLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [passwordSaving, setPasswordSaving] = useState(false)
   const [passwordForm, setPasswordForm] = useState({
@@ -60,87 +41,6 @@ export default function ProfilePage() {
     }
     fetchStats()
   }, [])
-
-  // 获取 Telegram 绑定状态
-  useEffect(() => {
-    const fetchTelegramStatus = async () => {
-      try {
-        setTelegramLoading(true)
-        const res = await api.get('/api/user/telegram/status')
-        setTelegramStatus(res.data)
-      } catch (error) {
-        console.error('获取 Telegram 状态失败:', error)
-      } finally {
-        setTelegramLoading(false)
-      }
-    }
-    fetchTelegramStatus()
-  }, [])
-
-  // 生成绑定码
-  const handleGenerateBindCode = async () => {
-    try {
-      setBindCodeLoading(true)
-      const res = await api.post('/api/user/telegram/bind-code')
-      setBindCode(res.data.bind_code)
-      setBindDialogOpen(true)
-    } catch (error: unknown) {
-      console.error('生成绑定码失败:', error)
-      setSnackbar({ open: true, message: '生成绑定码失败', severity: 'error' })
-    } finally {
-      setBindCodeLoading(false)
-    }
-  }
-
-  // 解绑 Telegram
-  const handleUnbindTelegram = async () => {
-    if (!window.confirm('确定要解除 Telegram 绑定吗？')) return
-    
-    try {
-      setUnbindLoading(true)
-      await api.delete('/api/user/telegram/unbind')
-      setTelegramStatus(prev => prev ? { ...prev, is_bound: false, telegram_id: null } : null)
-      setSnackbar({ open: true, message: '已解除 Telegram 绑定', severity: 'success' })
-    } catch (error: unknown) {
-      console.error('解绑失败:', error)
-      setSnackbar({ open: true, message: '解绑失败', severity: 'error' })
-    } finally {
-      setUnbindLoading(false)
-    }
-  }
-
-  // 复制绑定码
-  const handleCopyBindCode = () => {
-    if (bindCode) {
-      navigator.clipboard.writeText(`/bind ${bindCode}`)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }
-
-  // 从图片提取颜色
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    setExtracting(true)
-    try {
-      const imageUrl = URL.createObjectURL(file)
-      const color = await extractDominantColor(imageUrl)
-      setPrimaryColor(color)
-      URL.revokeObjectURL(imageUrl)
-      setSnackbar({ open: true, message: `已提取主题色: ${color}`, severity: 'success' })
-    } catch (error) {
-      console.error('提取颜色失败:', error)
-      setSnackbar({ open: true, message: '提取颜色失败，请尝试其他图片', severity: 'error' })
-    } finally {
-      setExtracting(false)
-      // 清空 input 以便可以再次选择同一文件
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-    }
-  }
 
   const handleOpenPasswordDialog = () => {
     setPasswordDialogOpen(true)
@@ -203,232 +103,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* 显示设置卡片 */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            显示设置
-          </Typography>
-          
-          {/* 主题模式 */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-              <SettingsBrightness sx={{ mr: 1, color: 'text.secondary' }} />
-              <Typography variant="body1">主题模式</Typography>
-            </Box>
-            <ToggleButtonGroup
-              value={preference}
-              exclusive
-              onChange={(_, value) => value && setPreference(value)}
-              fullWidth
-              size="small"
-            >
-              <ToggleButton value="light">
-                <LightMode sx={{ mr: 0.5, fontSize: 18 }} />
-                日间
-              </ToggleButton>
-              <ToggleButton value="dark">
-                <DarkMode sx={{ mr: 0.5, fontSize: 18 }} />
-                夜间
-              </ToggleButton>
-              <ToggleButton value="system">
-                <SettingsBrightness sx={{ mr: 0.5, fontSize: 18 }} />
-                跟随系统
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          
-          <Divider sx={{ my: 2 }} />
-          
-          {/* 主题色设置 */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-              <Palette sx={{ mr: 1, color: 'text.secondary' }} />
-              <Typography variant="body1">主题色</Typography>
-            </Box>
-            
-            {/* 预设颜色选择 */}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-              {PRESET_COLORS.map((preset) => (
-                <IconButton
-                  key={preset.color}
-                  onClick={() => setPrimaryColor(preset.color)}
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    bgcolor: preset.color,
-                    border: primaryColor === preset.color ? '3px solid' : '1px solid',
-                    borderColor: primaryColor === preset.color ? 'white' : 'rgba(0,0,0,0.2)',
-                    '&:hover': {
-                      bgcolor: preset.color,
-                      opacity: 0.9,
-                    },
-                  }}
-                  title={preset.name}
-                >
-                  {primaryColor === preset.color && (
-                    <Check sx={{ color: 'white', fontSize: 20 }} />
-                  )}
-                </IconButton>
-              ))}
-            </Box>
-            
-            {/* 从图片提取颜色 */}
-            <input
-              type="file"
-              accept="image/*"
-              ref={fileInputRef}
-              onChange={handleImageUpload}
-              style={{ display: 'none' }}
-            />
-            <Button
-              variant="outlined"
-              startIcon={extracting ? <CircularProgress size={16} /> : <Image />}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={extracting}
-              size="small"
-            >
-              {extracting ? '提取中...' : '从图片提取颜色'}
-            </Button>
-            
-            {/* 当前颜色预览 */}
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1.5, gap: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                当前主题色:
-              </Typography>
-              <Box
-                sx={{
-                  width: 20,
-                  height: 20,
-                  bgcolor: primaryColor,
-                  borderRadius: '50%',
-                  border: '1px solid rgba(0,0,0,0.2)',
-                }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                {primaryColor}
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Divider sx={{ my: 2 }} />
-          
-          {/* 封面尺寸设置 */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-              <PhotoSizeSelectLarge sx={{ mr: 1, color: 'text.secondary' }} />
-              <Typography variant="body1">封面尺寸</Typography>
-            </Box>
-            <ToggleButtonGroup
-              value={coverSize}
-              exclusive
-              onChange={(_, value) => value && setCoverSize(value)}
-              fullWidth
-              size="small"
-            >
-              <ToggleButton value="small">
-                小
-              </ToggleButton>
-              <ToggleButton value="medium">
-                中
-              </ToggleButton>
-              <ToggleButton value="large">
-                大
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          
-          <Divider sx={{ my: 2 }} />
-          
-          {/* 分页模式设置 */}
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
-              <ViewList sx={{ mr: 1, color: 'text.secondary' }} />
-              <Typography variant="body1">分页模式</Typography>
-            </Box>
-            <ToggleButtonGroup
-              value={paginationMode}
-              exclusive
-              onChange={(_, value) => value && setPaginationMode(value)}
-              fullWidth
-              size="small"
-            >
-              <ToggleButton value="traditional">
-                <ViewList sx={{ mr: 0.5, fontSize: 18 }} />
-                传统分页
-              </ToggleButton>
-              <ToggleButton value="infinite">
-                <AllInclusive sx={{ mr: 0.5, fontSize: 18 }} />
-                无限滚动
-              </ToggleButton>
-            </ToggleButtonGroup>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              传统分页：底部显示页码导航；无限滚动：滚动到底部自动加载更多
-            </Typography>
-          </Box>
-        </CardContent>
-      </Card>
-
-      {/* Telegram 绑定卡片 */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Telegram sx={{ mr: 1, color: '#0088cc' }} />
-            <Typography variant="h6">Telegram 绑定</Typography>
-          </Box>
-          
-          {telegramLoading ? (
-            <Box display="flex" alignItems="center" gap={1}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" color="text.secondary">加载中...</Typography>
-            </Box>
-          ) : !telegramStatus?.bot_enabled ? (
-            <Alert severity="info" sx={{ py: 0.5 }}>
-              Telegram Bot 未启用，请联系管理员配置
-            </Alert>
-          ) : telegramStatus?.is_bound ? (
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <CheckCircle color="success" />
-                <Typography variant="body1">已绑定</Typography>
-                <Chip 
-                  label={`ID: ${telegramStatus.telegram_id}`} 
-                  size="small" 
-                  variant="outlined"
-                />
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                您可以在 Telegram 中使用 Bot 搜索书籍、下载文件和查看阅读进度。
-              </Typography>
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                startIcon={unbindLoading ? <CircularProgress size={16} /> : <LinkOff />}
-                onClick={handleUnbindTelegram}
-                disabled={unbindLoading}
-              >
-                {unbindLoading ? '解绑中...' : '解除绑定'}
-              </Button>
-            </Box>
-          ) : (
-            <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                绑定 Telegram 后，您可以通过 Bot 搜索书籍、下载文件和查看阅读进度。
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={bindCodeLoading ? <CircularProgress size={16} color="inherit" /> : <Link />}
-                onClick={handleGenerateBindCode}
-                disabled={bindCodeLoading}
-              >
-                {bindCodeLoading ? '生成中...' : '获取绑定码'}
-              </Button>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-
       {/* 账户设置卡片 */}
       <Card>
         <List>
@@ -437,6 +111,13 @@ export default function ProfilePage() {
               <Lock />
             </ListItemIcon>
             <ListItemText primary="修改密码" secondary="更改账户密码" />
+          </ListItem>
+          <Divider />
+          <ListItem button onClick={() => navigate('/settings')}>
+            <ListItemIcon>
+              <Settings />
+            </ListItemIcon>
+            <ListItemText primary="用户设置" secondary="显示设置与 Telegram 绑定" />
           </ListItem>
           <Divider />
           <ListItem button onClick={() => navigate('/favorites')}>
@@ -477,42 +158,6 @@ export default function ProfilePage() {
           </ListItem>
         </List>
       </Card>
-
-      {/* 绑定码对话框 */}
-      <Dialog open={bindDialogOpen} onClose={() => setBindDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Telegram sx={{ color: '#0088cc' }} />
-          Telegram 绑定码
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" sx={{ mb: 2 }}>
-            请在 Telegram 中向 Bot 发送以下命令完成绑定：
-          </Typography>
-          <Box 
-            sx={{ 
-              p: 2, 
-              bgcolor: 'action.hover', 
-              borderRadius: 1, 
-              fontFamily: 'monospace',
-              fontSize: '1.2rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}
-          >
-            <code>/bind {bindCode}</code>
-            <IconButton onClick={handleCopyBindCode} size="small">
-              {copied ? <CheckCircle color="success" /> : <ContentCopy />}
-            </IconButton>
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            绑定码有效期 5 分钟，过期后需要重新获取。
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBindDialogOpen(false)}>关闭</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* 修改密码对话框 */}
       <Dialog open={passwordDialogOpen} onClose={handleClosePasswordDialog} maxWidth="xs" fullWidth>
