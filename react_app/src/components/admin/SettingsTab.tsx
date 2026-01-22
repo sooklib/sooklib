@@ -15,7 +15,7 @@ import {
   InputAdornment,
   IconButton,
 } from '@mui/material'
-import { Save, Telegram, Visibility, VisibilityOff, CheckCircle, Error, Refresh, OpenInNew } from '@mui/icons-material'
+import { Save, Telegram, Visibility, VisibilityOff, CheckCircle, Error, Refresh, OpenInNew, Email } from '@mui/icons-material'
 import api from '../../services/api'
 import { useSettingsStore } from '../../stores/settingsStore'
 
@@ -37,6 +37,19 @@ interface TelegramSettings {
   bot_token_preview: string
   webhook_url: string
   max_file_size: number
+}
+
+interface KindleSettings {
+  enabled: boolean
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password_configured: boolean
+  use_tls: boolean
+  use_ssl: boolean
+  from_email: string
+  from_name: string
+  max_attachment_mb: number
 }
 
 interface UpdateCheckResult {
@@ -105,6 +118,24 @@ export default function SettingsTab() {
   const [telegramError, setTelegramError] = useState<string | null>(null)
   const [testingConnection, setTestingConnection] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [kindleSettings, setKindleSettings] = useState<KindleSettings>({
+    enabled: false,
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_username: '',
+    smtp_password_configured: false,
+    use_tls: true,
+    use_ssl: false,
+    from_email: '',
+    from_name: 'Sooklib',
+    max_attachment_mb: 50,
+  })
+  const [kindlePassword, setKindlePassword] = useState('')
+  const [showKindlePassword, setShowKindlePassword] = useState(false)
+  const [kindleLoading, setKindleLoading] = useState(true)
+  const [kindleSaving, setKindleSaving] = useState(false)
+  const [kindleSuccess, setKindleSuccess] = useState(false)
+  const [kindleError, setKindleError] = useState<string | null>(null)
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
   const [updateLoading, setUpdateLoading] = useState(true)
   const [updateError, setUpdateError] = useState<string | null>(null)
@@ -115,6 +146,7 @@ export default function SettingsTab() {
   useEffect(() => {
     loadSettings()
     loadTelegramSettings()
+    loadKindleSettings()
     loadUpdateInfo()
   }, [])
 
@@ -166,6 +198,18 @@ export default function SettingsTab() {
     }
   }
 
+  const loadKindleSettings = async () => {
+    try {
+      setKindleLoading(true)
+      const response = await api.get<KindleSettings>('/api/admin/kindle')
+      setKindleSettings(response.data)
+    } catch (err: unknown) {
+      console.error('加载 Kindle 设置失败:', err)
+    } finally {
+      setKindleLoading(false)
+    }
+  }
+
   const loadUpdateInfo = async () => {
     try {
       setUpdateLoading(true)
@@ -187,6 +231,38 @@ export default function SettingsTab() {
     const url = updateInfo?.url || updateInfo?.source
     if (url) {
       window.open(url, '_blank')
+    }
+  }
+
+  const handleSaveKindle = async () => {
+    try {
+      setKindleSaving(true)
+      setKindleError(null)
+      setKindleSuccess(false)
+      const updateData: Record<string, unknown> = {
+        enabled: kindleSettings.enabled,
+        smtp_host: kindleSettings.smtp_host,
+        smtp_port: kindleSettings.smtp_port,
+        smtp_username: kindleSettings.smtp_username,
+        use_tls: kindleSettings.use_tls,
+        use_ssl: kindleSettings.use_ssl,
+        from_email: kindleSettings.from_email,
+        from_name: kindleSettings.from_name,
+        max_attachment_mb: kindleSettings.max_attachment_mb,
+      }
+      if (kindlePassword.trim()) {
+        updateData.smtp_password = kindlePassword.trim()
+      }
+      await api.put('/api/admin/kindle', updateData)
+      setKindleSuccess(true)
+      setKindlePassword('')
+      loadKindleSettings()
+      setTimeout(() => setKindleSuccess(false), 3000)
+    } catch (err: unknown) {
+      console.error('保存 Kindle 设置失败:', err)
+      setKindleError('保存 Kindle 设置失败')
+    } finally {
+      setKindleSaving(false)
     }
   }
 
@@ -667,6 +743,159 @@ export default function SettingsTab() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {/* Kindle 邮件推送设置 */}
+      <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 4 }}>
+        <Email color="primary" />
+        Kindle 邮件推送
+      </Typography>
+
+      {kindleSuccess && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Kindle 设置保存成功！
+        </Alert>
+      )}
+
+      {kindleError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {kindleError}
+        </Alert>
+      )}
+
+      {kindleLoading ? (
+        <Box display="flex" justifyContent="center" py={4}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              邮件服务配置
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              通过 SMTP 发送附件至 Kindle 邮箱。建议使用稳定的邮箱服务（如 Outlook/QQ/企业邮箱）。
+            </Typography>
+
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={kindleSettings.enabled}
+                    onChange={(e) => setKindleSettings({ ...kindleSettings, enabled: e.target.checked })}
+                  />
+                }
+                label="启用 Kindle 邮件推送"
+              />
+
+              {kindleSettings.smtp_password_configured && (
+                <Alert severity="info" sx={{ py: 0.5 }}>
+                  SMTP 密码已配置（不会显示）
+                </Alert>
+              )}
+
+              <TextField
+                label="SMTP 主机"
+                value={kindleSettings.smtp_host}
+                onChange={(e) => setKindleSettings({ ...kindleSettings, smtp_host: e.target.value })}
+                placeholder="smtp.example.com"
+                fullWidth
+              />
+
+              <TextField
+                label="SMTP 端口"
+                type="number"
+                value={kindleSettings.smtp_port}
+                onChange={(e) => setKindleSettings({ ...kindleSettings, smtp_port: parseInt(e.target.value) || 587 })}
+                fullWidth
+              />
+
+              <TextField
+                label="SMTP 用户名"
+                value={kindleSettings.smtp_username}
+                onChange={(e) => setKindleSettings({ ...kindleSettings, smtp_username: e.target.value })}
+                placeholder="邮箱账号/用户名"
+                fullWidth
+              />
+
+              <TextField
+                label="SMTP 密码 / 授权码"
+                value={kindlePassword}
+                onChange={(e) => setKindlePassword(e.target.value)}
+                placeholder={kindleSettings.smtp_password_configured ? '输入新密码以更新' : '请输入 SMTP 密码或授权码'}
+                type={showKindlePassword ? 'text' : 'password'}
+                fullWidth
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowKindlePassword(!showKindlePassword)} edge="end">
+                        {showKindlePassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={kindleSettings.use_tls}
+                      onChange={(e) => setKindleSettings({ ...kindleSettings, use_tls: e.target.checked })}
+                    />
+                  }
+                  label="使用 TLS"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={kindleSettings.use_ssl}
+                      onChange={(e) => setKindleSettings({ ...kindleSettings, use_ssl: e.target.checked })}
+                    />
+                  }
+                  label="使用 SSL"
+                />
+              </Box>
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                建议 TLS/SSL 只开启一个，常见端口：TLS 587、SSL 465
+              </Alert>
+
+              <TextField
+                label="发件邮箱"
+                value={kindleSettings.from_email}
+                onChange={(e) => setKindleSettings({ ...kindleSettings, from_email: e.target.value })}
+                placeholder="yourname@example.com"
+                fullWidth
+              />
+
+              <TextField
+                label="发件人名称"
+                value={kindleSettings.from_name}
+                onChange={(e) => setKindleSettings({ ...kindleSettings, from_name: e.target.value })}
+                fullWidth
+              />
+
+              <TextField
+                label="最大附件大小 (MB)"
+                type="number"
+                value={kindleSettings.max_attachment_mb}
+                onChange={(e) => setKindleSettings({ ...kindleSettings, max_attachment_mb: parseInt(e.target.value) || 50 })}
+                fullWidth
+              />
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
+              <Button
+                variant="contained"
+                onClick={handleSaveKindle}
+                disabled={kindleSaving}
+                startIcon={kindleSaving ? <CircularProgress size={20} color="inherit" /> : <Save />}
+              >
+                {kindleSaving ? '保存中...' : '保存 Kindle 设置'}
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
       )}
     </Box>
   )

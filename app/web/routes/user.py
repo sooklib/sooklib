@@ -57,6 +57,7 @@ class PersonalTagResponse(BaseModel):
 class UserSettingsUpdate(BaseModel):
     """用户设置更新请求"""
     age_rating_limit: Optional[str] = None  # 'all', 'teen', 'adult'
+    kindle_email: Optional[str] = None
 
 
 class PasswordChangeRequest(BaseModel):
@@ -498,6 +499,7 @@ async def get_user_settings(
         "username": current_user.username,
         "is_admin": current_user.is_admin,
         "age_rating_limit": current_user.age_rating_limit,
+        "kindle_email": current_user.kindle_email,
         "created_at": current_user.created_at.isoformat()
     }
 
@@ -528,6 +530,19 @@ async def update_user_settings(
                 detail=f"无效的年龄分级，必须是: {', '.join(valid_ratings)}"
             )
         current_user.age_rating_limit = settings_data.age_rating_limit
+
+    # 更新 Kindle 收件邮箱
+    if settings_data.kindle_email is not None:
+        email = settings_data.kindle_email.strip()
+        if not email:
+            current_user.kindle_email = None
+        else:
+            if "@" not in email or len(email) > 255:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="无效的 Kindle 邮箱地址"
+                )
+            current_user.kindle_email = email
     
     await db.commit()
     

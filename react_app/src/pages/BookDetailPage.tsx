@@ -10,7 +10,7 @@ import {
   ArrowBack, MenuBook, Download, Favorite, FavoriteBorder,
   AccessTime, Storage, PlayArrow, CheckCircle, Schedule,
   Edit, LocalOffer, Layers, Star, StarBorder, Delete,
-  Link, LinkOff, Collections, Notes, FileDownload
+  Link, LinkOff, Collections, Notes, FileDownload, Email
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -137,6 +137,13 @@ export default function BookDetailPage() {
   // 批注相关
   const [annotationCount, setAnnotationCount] = useState(0)
   const [exportingAnnotations, setExportingAnnotations] = useState(false)
+  const [kindleDialogOpen, setKindleDialogOpen] = useState(false)
+  const [kindleEmail, setKindleEmail] = useState('')
+  const [kindleTargetFormat, setKindleTargetFormat] = useState('azw3')
+  const [kindleSending, setKindleSending] = useState(false)
+  const [kindleError, setKindleError] = useState<string | null>(null)
+  const [kindleSuccess, setKindleSuccess] = useState<string | null>(null)
+  const [kindleLoading, setKindleLoading] = useState(false)
 
   // 设置页面标题 - 必须在条件return之前调用
   useDocumentTitle(book?.title || '书籍详情')
@@ -368,6 +375,55 @@ export default function BookDetailPage() {
     window.open(`/api/books/${id}/download?token=${token}`, '_blank')
   }
 
+  const handleOpenKindleDialog = async () => {
+    if (!token) {
+      alert('请先登录')
+      return
+    }
+    setKindleDialogOpen(true)
+    setKindleError(null)
+    setKindleSuccess(null)
+
+    const txtOnly = isTxtBook(book)
+    setKindleTargetFormat(txtOnly ? 'txt' : 'azw3')
+
+    if (!kindleEmail) {
+      try {
+        setKindleLoading(true)
+        const res = await api.get('/api/user/settings')
+        setKindleEmail(res.data?.kindle_email || '')
+      } catch (err) {
+        console.error('加载 Kindle 邮箱失败:', err)
+      } finally {
+        setKindleLoading(false)
+      }
+    }
+  }
+
+  const handleSendToKindle = async () => {
+    try {
+      setKindleSending(true)
+      setKindleError(null)
+      setKindleSuccess(null)
+      const payload = {
+        target_format: kindleTargetFormat,
+        to_email: kindleEmail.trim() ? kindleEmail.trim() : undefined,
+        wait_for_conversion: true,
+      }
+      const response = await api.post(`/api/books/${id}/send-to-kindle`, payload)
+      if (response.data?.status === 'converting') {
+        setKindleSuccess('格式转换中，请稍后重试发送')
+      } else {
+        setKindleSuccess(`已发送到 ${response.data?.to_email || kindleEmail}`)
+      }
+    } catch (err: any) {
+      console.error('发送到 Kindle 失败:', err)
+      setKindleError(err.response?.data?.detail || '发送失败，请检查 Kindle 设置')
+    } finally {
+      setKindleSending(false)
+    }
+  }
+
   const toggleFavorite = async () => {
     try {
       if (isFavorite) {
@@ -477,6 +533,9 @@ export default function BookDetailPage() {
   const hasProgress = readingProgress && readingProgress.progress > 0
   const progressPercent = readingProgress ? Math.round(readingProgress.progress * 100) : 0
   const isTxtFormat = isTxtBook(book)
+  const primaryFormat = extractExtension(book.file_format || book.versions?.find(v => v.is_primary)?.file_format || book.versions?.[0]?.file_format || '')
+  const kindleInputSupported = ['epub', 'mobi', 'azw3', 'txt'].includes(primaryFormat)
+  const kindleFormatOptions = primaryFormat === 'txt' ? ['txt'] : ['azw3', 'mobi', 'epub']
 
   return (
     <Box sx={{ p: 3 }}>
@@ -664,6 +723,15 @@ export default function BookDetailPage() {
             >
               下载
             </Button>
+            <Button
+              variant="outlined"
+              size="large"
+              startIcon={<Email />}
+              onClick={handleOpenKindleDialog}
+              disabled={!token || !kindleInputSupported}
+            >
+              发送到 Kindle
+            </Button>
             {user?.isAdmin && (
               <>
                 <Button
@@ -807,6 +875,75 @@ export default function BookDetailPage() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* 发送到 Kindle 对话框 */}
+      <Dialog open={kindleDialogOpen} onClose={() => setKindleDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>发送到 Kindle</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            通过邮件发送书籍到 Kindle。请确保已在 Kindle 设置中添加此发件邮箱到“已认可的发件人”。
+          </Typography>
+
+          {!kindleInputSupported && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              当前主版本格式不支持 Kindle 推送，请尝试下载原文件。
+            </Alert>
+          )}
+
+          {kindleLoading ? (
+            <Box display="flex" alignItems="center" gap={1} sx={{ mb: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2" color="text.secondary">加载中...</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="Kindle 邮箱"
+                value={kindleEmail}
+                onChange={(e) => setKindleEmail(e.target.value)}
+                placeholder="yourname@kindle.com"
+                fullWidth
+              />
+              <FormControl fullWidth>
+                <InputLabel>发送格式</InputLabel>
+                <Select
+                  value={kindleTargetFormat}
+                  label="发送格式"
+                  onChange={(e) => setKindleTargetFormat(e.target.value)}
+                >
+                  {kindleFormatOptions.map((format) => (
+                    <MenuItem key={format} value={format}>
+                      {format.toUpperCase()}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+
+          {kindleError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {kindleError}
+            </Alert>
+          )}
+
+          {kindleSuccess && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              {kindleSuccess}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setKindleDialogOpen(false)}>关闭</Button>
+          <Button
+            variant="contained"
+            onClick={handleSendToKindle}
+            disabled={kindleSending || !kindleInputSupported}
+          >
+            {kindleSending ? '发送中...' : '发送'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 编辑书籍对话框 */}
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>

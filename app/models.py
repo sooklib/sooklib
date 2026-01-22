@@ -23,6 +23,9 @@ class User(Base):
     
     # Telegram 集成
     telegram_id = Column(String(20), unique=True, nullable=True, index=True)  # Telegram 用户 ID
+
+    # Kindle 推送
+    kindle_email = Column(String(255), nullable=True)
     
     # 内容分级控制
     age_rating_limit = Column(String(20), default='all')  # 'all', 'teen', 'adult'

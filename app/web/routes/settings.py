@@ -13,6 +13,11 @@ from app.web.routes.admin import admin_required
 from app.web.routes.auth import get_current_user
 from app.utils.logger import log
 from app.config import settings as app_settings
+from app.core.kindle_settings import (
+    DEFAULT_KINDLE_SETTINGS,
+    load_kindle_settings,
+    save_kindle_settings,
+)
 
 router = APIRouter()
 
@@ -52,6 +57,20 @@ DEFAULT_TELEGRAM_SETTINGS = {
     "webhook_url": "",
     "max_file_size": 20,  # MB
 }
+
+
+class KindleSettingsUpdate(BaseModel):
+    """Kindle 邮件推送设置更新请求"""
+    enabled: Optional[bool] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    use_tls: Optional[bool] = None
+    use_ssl: Optional[bool] = None
+    from_email: Optional[str] = None
+    from_name: Optional[str] = None
+    max_attachment_mb: Optional[int] = None
 
 
 def load_settings() -> dict:
@@ -329,6 +348,60 @@ def _is_newer_version(current: str, latest: str) -> bool:
     latest_suffix = latest_tuple[3]
     if current_suffix == latest_suffix:
         return False
+
+
+# ===== Kindle 设置 API =====
+
+@router.get("/admin/kindle")
+async def get_kindle_settings(
+    admin: User = Depends(admin_required)
+):
+    """
+    获取 Kindle 邮件推送设置（管理员）
+    """
+    settings = load_kindle_settings()
+    return {
+        "enabled": settings.get("enabled", False),
+        "smtp_host": settings.get("smtp_host", ""),
+        "smtp_port": settings.get("smtp_port", 587),
+        "smtp_username": settings.get("smtp_username", ""),
+        "smtp_password_configured": bool(settings.get("smtp_password")),
+        "use_tls": settings.get("use_tls", True),
+        "use_ssl": settings.get("use_ssl", False),
+        "from_email": settings.get("from_email", ""),
+        "from_name": settings.get("from_name", DEFAULT_KINDLE_SETTINGS.get("from_name", "")),
+        "max_attachment_mb": settings.get("max_attachment_mb", 50),
+    }
+
+
+@router.put("/admin/kindle")
+async def update_kindle_settings(
+    data: KindleSettingsUpdate,
+    admin: User = Depends(admin_required)
+):
+    """
+    更新 Kindle 邮件推送设置（管理员）
+    """
+    settings = load_kindle_settings()
+    update_count = 0
+    for key, value in data.dict().items():
+        if value is not None:
+            settings[key] = value
+            update_count += 1
+
+    if update_count == 0:
+        raise HTTPException(status_code=400, detail="没有要更新的设置")
+
+    if not save_kindle_settings(settings):
+        raise HTTPException(status_code=500, detail="保存设置失败")
+
+    log.info(f"管理员 {admin.username} 更新了 Kindle 设置")
+
+    return {
+        "message": "Kindle 设置已更新",
+        "enabled": settings.get("enabled", False),
+        "smtp_password_configured": bool(settings.get("smtp_password")),
+    }
     if not latest_suffix:
         return True
     if not current_suffix:

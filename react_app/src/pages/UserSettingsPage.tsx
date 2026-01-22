@@ -1,4 +1,4 @@
-import { Box, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton, IconButton, Button, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Chip } from '@mui/material'
+import { Box, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton, IconButton, Button, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Chip, TextField } from '@mui/material'
 import { SettingsBrightness, LightMode, DarkMode, Palette, Image, PhotoSizeSelectLarge, ViewList, AllInclusive, Telegram, Link, LinkOff, ContentCopy, CheckCircle } from '@mui/icons-material'
 import { useEffect, useRef, useState } from 'react'
 import { useThemeStore, PRESET_COLORS } from '../stores/themeStore'
@@ -27,6 +27,11 @@ export default function UserSettingsPage() {
   const [bindCodeLoading, setBindCodeLoading] = useState(false)
   const [unbindLoading, setUnbindLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [kindleEmail, setKindleEmail] = useState('')
+  const [kindleLoading, setKindleLoading] = useState(true)
+  const [kindleSaving, setKindleSaving] = useState(false)
+  const [kindleSuccess, setKindleSuccess] = useState(false)
+  const [kindleError, setKindleError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchTelegramStatus = async () => {
@@ -41,6 +46,21 @@ export default function UserSettingsPage() {
       }
     }
     fetchTelegramStatus()
+  }, [])
+
+  useEffect(() => {
+    const fetchUserSettings = async () => {
+      try {
+        setKindleLoading(true)
+        const res = await api.get('/api/user/settings')
+        setKindleEmail(res.data?.kindle_email || '')
+      } catch (error) {
+        console.error('获取用户设置失败:', error)
+      } finally {
+        setKindleLoading(false)
+      }
+    }
+    fetchUserSettings()
   }, [])
 
   const handleGenerateBindCode = async () => {
@@ -77,6 +97,24 @@ export default function UserSettingsPage() {
       navigator.clipboard.writeText(`/bind ${bindCode}`)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const handleSaveKindleEmail = async () => {
+    try {
+      setKindleSaving(true)
+      setKindleError(null)
+      setKindleSuccess(false)
+      await api.put('/api/user/settings', {
+        kindle_email: kindleEmail.trim() ? kindleEmail.trim() : null,
+      })
+      setKindleSuccess(true)
+      setTimeout(() => setKindleSuccess(false), 3000)
+    } catch (error) {
+      console.error('保存 Kindle 邮箱失败:', error)
+      setKindleError('保存 Kindle 邮箱失败')
+    } finally {
+      setKindleSaving(false)
     }
   }
 
@@ -234,6 +272,57 @@ export default function UserSettingsPage() {
               </ToggleButton>
             </ToggleButtonGroup>
           </Box>
+        </CardContent>
+      </Card>
+
+      {/* Kindle 邮箱 */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Kindle 邮箱
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            用于“发送到 Kindle”功能。建议填写 @kindle.com 或 @free.kindle.com 邮箱。
+          </Typography>
+
+          {kindleError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {kindleError}
+            </Alert>
+          )}
+
+          {kindleSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Kindle 邮箱保存成功
+            </Alert>
+          )}
+
+          {kindleLoading ? (
+            <Box display="flex" alignItems="center" gap={1}>
+              <CircularProgress size={20} />
+              <Typography variant="body2" color="text.secondary">加载中...</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="Kindle 邮箱"
+                value={kindleEmail}
+                onChange={(e) => setKindleEmail(e.target.value)}
+                placeholder="yourname@kindle.com"
+                fullWidth
+              />
+              <Box>
+                <Button
+                  variant="contained"
+                  onClick={handleSaveKindleEmail}
+                  disabled={kindleSaving}
+                  startIcon={kindleSaving ? <CircularProgress size={16} color="inherit" /> : undefined}
+                >
+                  {kindleSaving ? '保存中...' : '保存邮箱'}
+                </Button>
+              </Box>
+            </Box>
+          )}
         </CardContent>
       </Card>
 

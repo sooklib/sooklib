@@ -2,7 +2,9 @@
 API路由
 提供REST API接口
 """
+import asyncio
 from datetime import datetime, timezone, timedelta, date
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,6 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.scanner import Scanner
+from app.core.conversion.ebook_convert import (
+    get_cached_conversion_path,
+    get_conversion_status,
+    is_conversion_supported,
+    request_conversion
+)
+from app.core.kindle_mailer import send_to_kindle
+from app.core.kindle_settings import load_kindle_settings
 from app.core.websocket import manager
 from app.database import get_db
 from app.models import Author, Book, Library, ReadingProgress, ReadingSession, User
@@ -59,6 +69,13 @@ class BookResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class KindleSendRequest(BaseModel):
+    """发送到 Kindle 请求"""
+    target_format: Optional[str] = "azw3"
+    to_email: Optional[str] = None
+    wait_for_conversion: bool = False
 
 
 class AuthorResponse(BaseModel):
@@ -660,6 +677,97 @@ async def get_book(
         "version_count": len(book.versions),
         "versions": versions_data,
         "available_formats": available_formats,
+    }
+
+
+@router.post("/books/{book_id}/send-to-kindle")
+async def send_book_to_kindle(
+    book_id: int,
+    payload: KindleSendRequest,
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """发送书籍到 Kindle 邮箱"""
+    kindle_settings = load_kindle_settings()
+    if not kindle_settings.get("enabled", False):
+        raise HTTPException(status_code=400, detail="Kindle 推送未启用")
+
+    to_email = (payload.to_email or current_user.kindle_email or "").strip()
+    if not to_email:
+        raise HTTPException(status_code=400, detail="未配置 Kindle 收件邮箱")
+
+    await db.refresh(book, ['versions'])
+    if not book.versions:
+        raise HTTPException(status_code=404, detail="书籍文件不存在")
+
+    primary_version = next((v for v in book.versions if v.is_primary), None)
+    version = primary_version or book.versions[0]
+    file_path = Path(version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="书籍文件不存在")
+
+    input_format = version.file_format.lower().lstrip(".")
+    target_format = (payload.target_format or input_format).lower().lstrip(".")
+
+    attachment_path = file_path
+
+    if input_format in {"epub", "mobi", "azw3"} and target_format != input_format:
+        if not is_conversion_supported(input_format, target_format):
+            raise HTTPException(status_code=400, detail="不支持的转换格式")
+
+        cached = get_cached_conversion_path(file_path, target_format)
+        if cached:
+            attachment_path = cached
+        else:
+            result = request_conversion(file_path, target_format)
+            if result.get("status") == "failed":
+                raise HTTPException(status_code=400, detail=result.get("message", "转换失败"))
+
+            job_id = result.get("job_id")
+            if not payload.wait_for_conversion:
+                return {
+                    "status": "converting",
+                    "job_id": job_id,
+                    "message": "格式转换中，请稍后重试发送"
+                }
+
+            deadline = asyncio.get_running_loop().time() + 90
+            while asyncio.get_running_loop().time() < deadline:
+                status = get_conversion_status(job_id) if job_id else None
+                if status and status.get("status") == "success":
+                    output_path = status.get("output_path")
+                    if output_path:
+                        attachment_path = Path(output_path)
+                    break
+                if status and status.get("status") == "failed":
+                    raise HTTPException(status_code=400, detail=status.get("message", "转换失败"))
+                await asyncio.sleep(2)
+
+            if attachment_path == file_path:
+                raise HTTPException(status_code=408, detail="转换超时，请稍后重试")
+
+    if input_format == "txt" and target_format not in {"txt", "text"}:
+        raise HTTPException(status_code=400, detail="TXT 不支持自动转换，请直接发送 TXT")
+
+    max_mb = int(kindle_settings.get("max_attachment_mb") or 50)
+    if attachment_path.stat().st_size > max_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"文件超过 {max_mb}MB，无法通过邮件发送")
+
+    subject = f"{book.title}"
+    try:
+        send_to_kindle(to_email=to_email, attachment_path=attachment_path, subject=subject)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        log.error(f"发送到 Kindle 失败: {exc}")
+        raise HTTPException(status_code=500, detail="发送失败，请检查 SMTP 配置")
+
+    return {
+        "status": "sent",
+        "to_email": to_email,
+        "format": attachment_path.suffix.lstrip("."),
+        "file_name": attachment_path.name
     }
 
 
