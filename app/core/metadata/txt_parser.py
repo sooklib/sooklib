@@ -187,6 +187,13 @@ class TxtParser:
             cjk = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
             return cjk / total
 
+        def ascii_letter_ratio(text: str) -> float:
+            if not text:
+                return 0.0
+            total = len(text)
+            ascii_letters = sum(1 for ch in text if ch.isascii() and ch.isalpha())
+            return ascii_letters / total
+
         def choose_encoding() -> Optional[str]:
             candidates = [
                 'utf-8', 'utf-8-sig',
@@ -252,7 +259,7 @@ class TxtParser:
             candidates.append(encoding)
 
         if allow_binary:
-            for fallback in ['utf-8', 'gb18030', 'gbk', 'big5', 'latin-1']:
+            for fallback in ['utf-8', 'gb18030', 'gbk', 'big5']:
                 if fallback not in candidates:
                     candidates.append(fallback)
 
@@ -264,8 +271,12 @@ class TxtParser:
                 if not content:
                     continue
                 quality = decode_quality(content[:10000])
-                if allow_binary and quality > 0.35:
+                if allow_binary and quality > 0.25:
                     continue
+                if allow_binary:
+                    readable_score = cjk_ratio(content[:10000]) + ascii_letter_ratio(content[:10000])
+                    if readable_score < 0.2:
+                        continue
                 if quality > 0.2:
                     log.warning(f"编码 {enc} 读取质量较差: {file_path.name}")
                 return self._clean_content(content)
