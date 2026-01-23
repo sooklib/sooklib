@@ -16,6 +16,16 @@ from app.web.routes.dependencies import get_current_user
 router = APIRouter(prefix="/api/annotations", tags=["annotations"])
 
 
+def _safe_int_param(value: Optional[str], default: int, min_value: int, max_value: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(min_value, min(max_value, parsed))
+
+
 # ============== Pydantic 模型 ==============
 
 class AnnotationCreate(BaseModel):
@@ -314,8 +324,8 @@ async def get_recent_annotations(
 
 @router.get("/my")
 async def list_my_annotations(
-    page: int = Query(default=1, ge=1),
-    limit: int = Query(default=50, ge=1, le=200),
+    page: Optional[str] = Query(default="1"),
+    limit: Optional[str] = Query(default="50"),
     book_id: Optional[int] = None,
     keyword: Optional[str] = None,
     annotation_type: Optional[str] = None,
@@ -326,6 +336,9 @@ async def list_my_annotations(
     """
     获取用户批注列表（支持筛选与分页）
     """
+    page_num = _safe_int_param(page, 1, 1, 100000)
+    limit_num = _safe_int_param(limit, 50, 1, 200)
+
     conditions = [Annotation.user_id == current_user.id]
 
     if book_id is not None:
@@ -356,8 +369,8 @@ async def list_my_annotations(
         .join(Book, Annotation.book_id == Book.id)
         .where(and_(*conditions))
         .order_by(Annotation.updated_at.desc())
-        .limit(limit)
-        .offset((page - 1) * limit)
+        .limit(limit_num)
+        .offset((page_num - 1) * limit_num)
     )
 
     result = await db.execute(stmt)
@@ -378,13 +391,13 @@ async def list_my_annotations(
             "updated_at": annotation.updated_at
         })
 
-    total_pages = (total + limit - 1) // limit if total else 0
+    total_pages = (total + limit_num - 1) // limit_num if total else 0
 
     return {
         "items": items,
         "total": total,
-        "page": page,
-        "limit": limit,
+        "page": page_num,
+        "limit": limit_num,
         "total_pages": total_pages
     }
 
