@@ -374,41 +374,26 @@ def _detect_txt_encoding(file_path: Path) -> Optional[str]:
     if raw_data.startswith(b'\xfe\xff'):
         return "utf-16-be"
 
-    def decode_quality(text: str) -> float:
-        if not text:
-            return 1.0
-        total = len(text)
-        replacement = text.count('\ufffd')
-        control = sum(1 for ch in text if ord(ch) < 32 and ch not in '\t\n\r')
-        return (replacement + control) / total
-
-    def cjk_ratio(text: str) -> float:
-        if not text:
-            return 0.0
-        total = len(text)
-        cjk = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
-        return cjk / total
-
     candidates = [
         'utf-8', 'utf-8-sig',
         'gb18030', 'gbk', 'gb2312',
         'big5',
         'utf-16-le', 'utf-16-be',
     ]
-    best_encoding = None
-    best_score = None
+    metrics = []
     for encoding in candidates:
         try:
-            decoded = raw_data.decode(encoding)
-        except UnicodeDecodeError:
+            quality, cjk_ratio, ascii_ratio = _sample_text_metrics(raw_data, encoding)
+        except Exception:
             continue
-        score = (decode_quality(decoded), -cjk_ratio(decoded))
-        if best_score is None or score < best_score:
-            best_score = score
-            best_encoding = encoding
+        readable_ratio = cjk_ratio + ascii_ratio
+        metrics.append((encoding, quality, readable_ratio))
 
-    if best_encoding:
-        return best_encoding
+    if metrics:
+        preferred = [m for m in metrics if m[2] >= 0.05]
+        pool = preferred or metrics
+        pool.sort(key=lambda m: (m[1], -m[2]))
+        return pool[0][0]
 
     detected = chardet.detect(raw_data).get('encoding')
     if not detected:
@@ -431,16 +416,17 @@ def _detect_txt_encoding(file_path: Path) -> Optional[str]:
     return detected
 
 
-def _sample_text_metrics(raw_data: bytes, encoding: str) -> tuple[float, float]:
+def _sample_text_metrics(raw_data: bytes, encoding: str) -> tuple[float, float, float]:
     decoded = raw_data.decode(encoding, errors='replace')
     if not decoded:
-        return 1.0, 0.0
+        return 1.0, 0.0, 0.0
     total = len(decoded)
     replacement = decoded.count('\ufffd')
     control = sum(1 for ch in decoded if ord(ch) < 32 and ch not in '\t\n\r')
     quality = (replacement + control) / total
     cjk = sum(1 for ch in decoded if '\u4e00' <= ch <= '\u9fff') / total
-    return quality, cjk
+    ascii_letters = sum(1 for ch in decoded if ch.isascii() and ch.isalpha()) / total
+    return quality, cjk, ascii_letters
 
 
 def _is_text_sample_valid(file_path: Path, encoding: str) -> bool:
@@ -449,8 +435,9 @@ def _is_text_sample_valid(file_path: Path, encoding: str) -> bool:
             raw_data = f.read(200000)
     except Exception:
         return False
-    quality, cjk_ratio = _sample_text_metrics(raw_data, encoding)
-    return quality <= 0.35 or cjk_ratio >= 0.01
+    quality, cjk_ratio, ascii_ratio = _sample_text_metrics(raw_data, encoding)
+    readable_ratio = cjk_ratio + ascii_ratio
+    return (quality <= 0.25 and readable_ratio >= 0.03) or readable_ratio >= 0.15
 
 
 async def _read_txt_file_with_encoding(file_path: Path) -> tuple[Optional[str], Optional[str]]:
@@ -885,10 +872,18 @@ async def _ensure_txt_cache(file_path: Path) -> Optional[dict]:
     if text_path.exists() and index_path.exists():
         index = _load_txt_index(index_path)
         if index:
-            return {
-                "text_path": text_path,
-                "index": index
-            }
+            encoding = index.get("encoding")
+            if encoding and _is_text_sample_valid(file_path, encoding):
+                return {
+                    "text_path": text_path,
+                    "index": index
+                }
+            log.warning(f"TXT缓存编码疑似错误，触发重建: {file_path.name} ({encoding})")
+            try:
+                text_path.unlink(missing_ok=True)
+                index_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     if fail_marker.exists():
         encoding = _detect_txt_encoding(file_path)
