@@ -5,6 +5,8 @@ import api from '../services/api'
 interface User {
   id: number
   username: string
+  displayName?: string | null
+  avatarUrl?: string | null
   email?: string
   isAdmin: boolean
 }
@@ -39,6 +41,8 @@ export const useAuthStore = create<AuthState>()(
           user: {
             id: user.id,
             username: user.username,
+            displayName: user.display_name ?? null,
+            avatarUrl: user.avatar_url ?? null,
             email: user.email,
             isAdmin: user.is_admin,
           },
@@ -70,6 +74,8 @@ export const useAuthStore = create<AuthState>()(
             user: {
               id: user.id,
               username: user.username,
+              displayName: user.display_name ?? null,
+              avatarUrl: user.avatar_url ?? null,
               email: user.email,
               isAdmin: user.is_admin,
             },

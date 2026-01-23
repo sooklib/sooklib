@@ -57,6 +57,8 @@ class UserResponse(BaseModel):
     """用户响应模型"""
     id: int
     username: str
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_admin: bool
     age_rating_limit: str = "all"
     telegram_id: Optional[str] = None
@@ -198,6 +200,8 @@ async def login_json(
         "user": {
             "id": user.id,
             "username": user.username,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
             "is_admin": user.is_admin,
         }
     }
@@ -248,6 +252,8 @@ async def register_user(
         "user": {
             "id": user.id,
             "username": user.username,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
             "is_admin": user.is_admin,
         }
     }

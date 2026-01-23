@@ -91,11 +91,11 @@ export default function ProfilePage() {
       {/* 用户信息卡片 */}
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar sx={{ width: 64, height: 64, bgcolor: 'primary.main' }}>
+          <Avatar src={user?.avatarUrl || undefined} sx={{ width: 64, height: 64, bgcolor: 'primary.main' }}>
             <Person sx={{ fontSize: 32 }} />
           </Avatar>
           <Box>
-            <Typography variant="h6">{user?.username || '用户'}</Typography>
+            <Typography variant="h6">{user?.displayName || user?.username || '用户'}</Typography>
             <Typography variant="body2" color="text.secondary">
               {user?.isAdmin ? '管理员' : '普通用户'}
             </Typography>

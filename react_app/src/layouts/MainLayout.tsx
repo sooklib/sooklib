@@ -51,8 +51,11 @@ const MainLayout = () => {
           </IconButton>
           
           <IconButton onClick={() => navigate('/profile')}>
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
-              {user?.username?.charAt(0).toUpperCase() || 'U'}
+            <Avatar
+              src={user?.avatarUrl || undefined}
+              sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
+            >
+              {(user?.displayName || user?.username || 'U').charAt(0).toUpperCase()}
             </Avatar>
           </IconButton>
         </Toolbar>

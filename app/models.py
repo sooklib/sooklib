@@ -26,6 +26,10 @@ class User(Base):
 
     # Kindle 推送
     kindle_email = Column(String(255), nullable=True)
+
+    # 个人资料
+    display_name = Column(String(100), nullable=True)
+    avatar_url = Column(String(500), nullable=True)
     
     # 内容分级控制
     age_rating_limit = Column(String(20), default='all')  # 'all', 'teen', 'adult'

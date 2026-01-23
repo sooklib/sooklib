@@ -1,19 +1,28 @@
-import { Box, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton, IconButton, Button, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Chip, TextField } from '@mui/material'
-import { SettingsBrightness, LightMode, DarkMode, Palette, Image, PhotoSizeSelectLarge, ViewList, AllInclusive, Telegram, Link, LinkOff, ContentCopy, CheckCircle } from '@mui/icons-material'
+import { Box, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton, IconButton, Button, CircularProgress, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Chip, TextField, Avatar } from '@mui/material'
+import { SettingsBrightness, LightMode, DarkMode, Palette, Image, PhotoSizeSelectLarge, ViewList, AllInclusive, Telegram, Link, LinkOff, ContentCopy, CheckCircle, PhotoCamera } from '@mui/icons-material'
 import { useEffect, useRef, useState } from 'react'
 import { useThemeStore, PRESET_COLORS } from '../stores/themeStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
 import { extractDominantColor } from '../utils/colorUtils'
 
 export default function UserSettingsPage() {
   const { preference, setPreference, primaryColor, setPrimaryColor } = useThemeStore()
   const { coverSize, setCoverSize, paginationMode, setPaginationMode } = useSettingsStore()
+  const { checkAuth } = useAuthStore()
   const [extracting, setExtracting] = useState(false)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>(
     { open: false, message: '', severity: 'success' }
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  // 个人资料
+  const [displayName, setDisplayName] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [avatarUploading, setAvatarUploading] = useState(false)
 
   // Telegram 绑定状态
   const [telegramStatus, setTelegramStatus] = useState<{
@@ -54,6 +63,8 @@ export default function UserSettingsPage() {
         setKindleLoading(true)
         const res = await api.get('/api/user/settings')
         setKindleEmail(res.data?.kindle_email || '')
+        setDisplayName(res.data?.display_name || '')
+        setAvatarUrl(res.data?.avatar_url || null)
       } catch (error) {
         console.error('获取用户设置失败:', error)
       } finally {
@@ -110,11 +121,54 @@ export default function UserSettingsPage() {
       })
       setKindleSuccess(true)
       setTimeout(() => setKindleSuccess(false), 3000)
+      await checkAuth()
     } catch (error) {
       console.error('保存 Kindle 邮箱失败:', error)
       setKindleError('保存 Kindle 邮箱失败')
     } finally {
       setKindleSaving(false)
+    }
+  }
+
+  const handleSaveProfile = async () => {
+    try {
+      setProfileSaving(true)
+      await api.put('/api/user/settings', {
+        display_name: displayName.trim() ? displayName.trim() : null,
+      })
+      setSnackbar({ open: true, message: '昵称已更新', severity: 'success' })
+      await checkAuth()
+    } catch (error) {
+      console.error('保存昵称失败:', error)
+      setSnackbar({ open: true, message: '保存昵称失败', severity: 'error' })
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      setAvatarUploading(true)
+      const res = await api.post('/api/user/avatar', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setAvatarUrl(res.data?.avatar_url || null)
+      setSnackbar({ open: true, message: '头像已更新', severity: 'success' })
+      await checkAuth()
+    } catch (error) {
+      console.error('上传头像失败:', error)
+      setSnackbar({ open: true, message: '上传头像失败', severity: 'error' })
+    } finally {
+      setAvatarUploading(false)
+      if (avatarInputRef.current) {
+        avatarInputRef.current.value = ''
+      }
     }
   }
 
@@ -145,6 +199,56 @@ export default function UserSettingsPage() {
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
         用户设置
       </Typography>
+
+      {/* 个人资料 */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            个人资料
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+            <Avatar
+              src={avatarUrl || undefined}
+              sx={{ width: 72, height: 72, bgcolor: 'primary.main' }}
+            >
+              {(displayName || '用户').charAt(0).toUpperCase()}
+            </Avatar>
+            <Box>
+              <Button
+                variant="outlined"
+                startIcon={<PhotoCamera />}
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+              >
+                上传头像
+              </Button>
+              {avatarUploading && <CircularProgress size={18} sx={{ ml: 1 }} />}
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                支持 PNG/JPG/WEBP/GIF，最大 2MB
+              </Typography>
+            </Box>
+          </Box>
+          <input
+            type="file"
+            accept="image/*"
+            ref={avatarInputRef}
+            onChange={handleAvatarUpload}
+            style={{ display: 'none' }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <TextField
+              label="昵称"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              size="small"
+              sx={{ minWidth: 240 }}
+            />
+            <Button variant="contained" onClick={handleSaveProfile} disabled={profileSaving}>
+              {profileSaving ? '保存中...' : '保存昵称'}
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
 
       {/* 显示设置 */}
       <Card sx={{ mb: 3 }}>

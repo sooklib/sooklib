@@ -14,6 +14,7 @@ database:
 directories:
   data: /app/data
   covers: /app/covers
+  avatars: /app/data/avatars
   temp: /tmp/sooklib
 
 # 扫描配置

@@ -3,8 +3,11 @@
 处理收藏、个人标签等用户数据
 """
 from typing import List, Optional
+from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +24,16 @@ from app.web.routes.settings import load_telegram_settings
 from app.security import verify_password, hash_password
 
 router = APIRouter()
+
+AVATAR_MAX_SIZE = 2 * 1024 * 1024  # 2MB
+ALLOWED_AVATAR_MIME = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/webp",
+    "image/gif",
+}
+ALLOWED_AVATAR_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
 # ===== Pydantic 模型 =====
@@ -58,6 +71,8 @@ class UserSettingsUpdate(BaseModel):
     """用户设置更新请求"""
     age_rating_limit: Optional[str] = None  # 'all', 'teen', 'adult'
     kindle_email: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 class PasswordChangeRequest(BaseModel):
@@ -500,6 +515,8 @@ async def get_user_settings(
         "is_admin": current_user.is_admin,
         "age_rating_limit": current_user.age_rating_limit,
         "kindle_email": current_user.kindle_email,
+        "display_name": current_user.display_name,
+        "avatar_url": current_user.avatar_url,
         "created_at": current_user.created_at.isoformat()
     }
 
@@ -543,6 +560,37 @@ async def update_user_settings(
                     detail="无效的 Kindle 邮箱地址"
                 )
             current_user.kindle_email = email
+
+    # 更新昵称
+    if settings_data.display_name is not None:
+        name = settings_data.display_name.strip()
+        if not name:
+            current_user.display_name = None
+        else:
+            if len(name) < 2 or len(name) > 50:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="昵称长度需在 2-50 个字符之间"
+                )
+            current_user.display_name = name
+
+    # 更新头像地址（仅允许本地头像路径或 http(s)）
+    if settings_data.avatar_url is not None:
+        url = settings_data.avatar_url.strip()
+        if not url:
+            current_user.avatar_url = None
+        else:
+            if len(url) > 500:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="头像地址过长"
+                )
+            if not (url.startswith("/api/user/avatar/") or url.startswith("http://") or url.startswith("https://")):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="无效的头像地址"
+                )
+            current_user.avatar_url = url
     
     await db.commit()
     
@@ -550,8 +598,82 @@ async def update_user_settings(
     
     return {
         "status": "success",
-        "age_rating_limit": current_user.age_rating_limit
+        "age_rating_limit": current_user.age_rating_limit,
+        "display_name": current_user.display_name,
+        "avatar_url": current_user.avatar_url
     }
+
+
+@router.post("/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    上传用户头像
+    """
+    if not file.content_type or file.content_type.lower() not in ALLOWED_AVATAR_MIME:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="仅支持 PNG/JPG/WEBP/GIF 格式头像"
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="头像文件为空")
+    if len(data) > AVATAR_MAX_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="头像文件过大，最大 2MB"
+        )
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_AVATAR_EXTS:
+        if file.content_type in ("image/jpeg", "image/jpg"):
+            ext = ".jpg"
+        elif file.content_type == "image/webp":
+            ext = ".webp"
+        elif file.content_type == "image/gif":
+            ext = ".gif"
+        else:
+            ext = ".png"
+
+    avatar_dir = Path(settings.directories.avatars)
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"user_{current_user.id}_{uuid4().hex}{ext}"
+    target_path = avatar_dir / filename
+    target_path.write_bytes(data)
+
+    # 删除旧头像（仅限本地头像）
+    if current_user.avatar_url and current_user.avatar_url.startswith("/api/user/avatar/"):
+        old_name = current_user.avatar_url.rsplit("/", 1)[-1]
+        old_path = avatar_dir / old_name
+        if old_path.exists() and old_path.is_file():
+            old_path.unlink(missing_ok=True)
+
+    current_user.avatar_url = f"/api/user/avatar/{filename}"
+    await db.commit()
+
+    log.info(f"用户 {current_user.username} 更新了头像")
+
+    return {"status": "success", "avatar_url": current_user.avatar_url}
+
+
+@router.get("/avatar/{filename}")
+async def get_avatar(filename: str):
+    """
+    获取头像文件（公开访问）
+    """
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效文件名")
+
+    avatar_path = Path(settings.directories.avatars) / filename
+    if not avatar_path.exists() or not avatar_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="头像不存在")
+
+    return FileResponse(avatar_path)
 
 
 @router.put("/password")

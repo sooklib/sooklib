@@ -126,6 +126,8 @@ class UserResponse(BaseModel):
     """用户响应"""
     id: int
     username: str
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_admin: bool
     age_rating_limit: str
     telegram_id: Optional[str]
@@ -174,6 +176,8 @@ async def list_users(
         response.append({
             "id": user.id,
             "username": user.username,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
             "is_admin": user.is_admin,
             "age_rating_limit": user.age_rating_limit,
             "telegram_id": user.telegram_id,
@@ -211,6 +215,8 @@ async def get_user(
     return {
         "id": user.id,
         "username": user.username,
+        "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
         "is_admin": user.is_admin,
         "age_rating_limit": user.age_rating_limit,
         "telegram_id": user.telegram_id,

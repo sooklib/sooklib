@@ -26,6 +26,7 @@ class DirectoriesConfig(BaseModel):
     """目录配置"""
     data: str = "/app/data"
     covers: str = "/app/covers"
+    avatars: str = "/app/data/avatars"
     temp: str = "/tmp/sooklib"
 
 
@@ -191,7 +192,7 @@ class Config(BaseModel):
 
     def ensure_directories(self):
         """确保所有必要的目录存在"""
-        for dir_path in [self.directories.data, self.directories.covers, self.directories.temp]:
+        for dir_path in [self.directories.data, self.directories.covers, self.directories.avatars, self.directories.temp]:
             Path(dir_path).mkdir(parents=True, exist_ok=True)
         
         # 确保日志目录存在
