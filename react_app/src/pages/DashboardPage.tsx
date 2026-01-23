@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [data, setData] = useState<DashboardResponse | null>(null)
+  const [heroCoverError, setHeroCoverError] = useState(false)
 
   useEffect(() => {
     loadDashboard()
@@ -91,6 +92,10 @@ export default function DashboardPage() {
 
   const heroCoverColor = morandiPalette[getColorIndex(heroItem?.title || '')]
 
+  useEffect(() => {
+    setHeroCoverError(false)
+  }, [heroCover])
+
   const latestWall = useMemo(() => {
     if (!data?.latest_by_library) return []
     return data.latest_by_library.flatMap((lib) => lib.books).slice(0, 20)
@@ -99,18 +104,7 @@ export default function DashboardPage() {
   const posterWidth = coverSize === 'small' ? 120 : coverSize === 'medium' ? 150 : 180
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, minHeight: '100vh', position: 'relative', overflow: 'hidden' }}>
-      {/* 背景装饰 */}
-      <Box
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          background: 'linear-gradient(180deg, #0C1016 0%, #0F1621 45%, #111827 100%)',
-          zIndex: 0,
-          pointerEvents: 'none',
-        }}
-      />
-      <Box sx={{ position: 'relative', zIndex: 1 }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, minHeight: '100vh', bgcolor: 'background.default' }}>
       {/* 欢迎语 */}
         <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
           👋 你好，{user?.username || '用户'}
@@ -134,24 +128,9 @@ export default function DashboardPage() {
             overflow: 'hidden',
             borderRadius: 4,
             border: '1px solid rgba(255,255,255,0.08)',
-            background: 'rgba(17, 24, 39, 0.72)',
-            backdropFilter: 'blur(10px)',
+            background: 'background.paper',
           }}
         >
-          {heroCover && (
-            <Box
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                backgroundImage: `url(${heroCover})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                filter: 'blur(18px) saturate(1.05)',
-                transform: 'scale(1.08)',
-                opacity: 0.22,
-              }}
-            />
-          )}
           <Box sx={{ position: 'relative', p: { xs: 2.5, md: 3 }, display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap' }}>
             <Box
               sx={{
@@ -159,13 +138,19 @@ export default function DashboardPage() {
                 aspectRatio: '2/3',
                 borderRadius: 2,
                 overflow: 'hidden',
-                bgcolor: 'rgba(255,255,255,0.06)',
+                bgcolor: 'action.hover',
                 border: '1px solid rgba(255,255,255,0.08)',
                 flexShrink: 0,
               }}
             >
-              {heroCover ? (
-                <Box component="img" src={heroCover} alt={heroItem?.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {heroCover && !heroCoverError ? (
+                <Box
+                  component="img"
+                  src={heroCover}
+                  alt={heroItem?.title}
+                  sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={() => setHeroCoverError(true)}
+                />
               ) : (
                 <Box
                   sx={{
@@ -240,32 +225,32 @@ export default function DashboardPage() {
       {/* 统计卡片 - 移动端优化 */}
         <Grid container spacing={1.5} sx={{ mb: 4 }}>
           {[
-            { label: '书籍总数', value: loading ? '-' : totalBooks, icon: MenuBook, tone: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)' },
-            { label: '书库数量', value: loading ? '-' : totalLibraries, icon: LibraryBooks, tone: 'linear-gradient(135deg, #10B981 0%, #059669 100%)' },
-            { label: '作者数量', value: loading ? '-' : authorsCount, icon: Person, tone: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' },
-            { label: '近7天新增', value: loading ? '-' : newBooksCount, icon: AutoAwesome, tone: 'linear-gradient(135deg, #EC4899 0%, #DB2777 100%)' },
-            { label: '正在阅读', value: loading ? '-' : readingCount, icon: MenuBook, tone: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)' },
-            { label: '总容量', value: loading ? '-' : formatBytes(totalSize), icon: Storage, tone: 'linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%)' },
-            { label: '收藏数', value: loading ? '-' : favoritesCount, icon: Favorite, tone: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)' },
+            { label: '书籍总数', value: loading ? '-' : totalBooks, icon: MenuBook, accent: 'primary.main' },
+            { label: '书库数量', value: loading ? '-' : totalLibraries, icon: LibraryBooks, accent: 'success.main' },
+            { label: '作者数量', value: loading ? '-' : authorsCount, icon: Person, accent: 'warning.main' },
+            { label: '近7天新增', value: loading ? '-' : newBooksCount, icon: AutoAwesome, accent: 'secondary.main' },
+            { label: '正在阅读', value: loading ? '-' : readingCount, icon: MenuBook, accent: 'info.main' },
+            { label: '总容量', value: loading ? '-' : formatBytes(totalSize), icon: Storage, accent: 'info.main' },
+            { label: '收藏数', value: loading ? '-' : favoritesCount, icon: Favorite, accent: 'error.main' },
           ].map((item, idx) => {
             const Icon = item.icon
             return (
               <Grid item xs={6} md={3} lg={2.4} key={`${item.label}-${idx}`}>
                 <Card
                   sx={{
-                    color: 'white',
-                    background: item.tone,
+                    bgcolor: 'background.paper',
                     borderRadius: 3,
-                    boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+                    border: '1px solid',
+                    borderColor: 'divider',
                   }}
                 >
                   <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Icon sx={{ fontSize: { xs: 26, sm: 34 } }} />
+                    <Icon sx={{ fontSize: { xs: 24, sm: 30 }, color: item.accent }} />
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.1 }}>
                         {item.value}
                       </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                      <Typography variant="caption" color="text.secondary">
                         {item.label}
                       </Typography>
                     </Box>
@@ -438,7 +423,6 @@ export default function DashboardPage() {
           </Typography>
         </Box>
       )}
-      </Box>
     </Box>
   )
 }
