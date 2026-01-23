@@ -167,7 +167,7 @@ async def opds_recent_books(
     
     # 获取所有符合条件的书籍
     result = await db.execute(query)
-    all_books = result.scalars().all()
+    all_books = result.unique().scalars().all()
     
     # 应用内容分级过滤
     filtered_books = []
@@ -316,7 +316,7 @@ async def opds_author_books(
     query = query.order_by(Book.title)
     
     result = await db.execute(query)
-    all_books = result.scalars().all()
+    all_books = result.unique().scalars().all()
     
     # 应用内容分级过滤
     filtered_books = []
@@ -412,7 +412,7 @@ async def opds_search(
     query = query.order_by(Book.title)
     
     result = await db.execute(query)
-    all_books = result.scalars().all()
+    all_books = result.unique().scalars().all()
     
     # 应用内容分级过滤
     filtered_books = []
@@ -532,7 +532,7 @@ async def opds_library_books(
     query = query.where(Book.library_id == library_id).order_by(Book.added_at.desc())
 
     result = await db.execute(query)
-    all_books = result.scalars().all()
+    all_books = result.unique().scalars().all()
 
     filtered_books = []
     for book in all_books:
@@ -578,7 +578,7 @@ async def opds_download_book(
         .options(joinedload(Book.versions))
         .where(Book.id == book_id)
     )
-    book = result.scalar_one_or_none()
+    book = result.unique().scalar_one_or_none()
     
     if not book:
         return Response(content="书籍不存在", status_code=404)
