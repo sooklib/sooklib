@@ -26,6 +26,26 @@ Sooklib 是一个以书库为核心、对标 Emby 的书城/书库项目，强�
 - **Telegram 机器人**：远程搜索、下载、TXT 在线阅读
 - **自动备份**：定时备份与恢复
 
+## 技术栈（前后端）
+
+后端（API / 服务端）：
+
+- FastAPI（Web 框架）
+- SQLAlchemy 2.x + Alembic（ORM 与迁移）
+- SQLite / aiosqlite（默认数据库驱动）
+- APScheduler（定时任务）
+- python-telegram-bot（Telegram 机器人）
+- chardet / ebooklib 等（文本与电子书处理）
+
+前端（WebUI）：
+
+- React 18 + TypeScript
+- Vite（构建工具）
+- MUI（Material UI 组件库）
+- Zustand（状态管理）
+- React Router（路由）
+- Axios（HTTP 客户端）
+
 ## 镜像与版本
 
 - **GHCR**：`ghcr.io/sooklib/sooklib`
