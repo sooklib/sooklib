@@ -19,6 +19,7 @@ import {
   VisibilityOff,
   MenuBook,
 } from '@mui/icons-material'
+import { useTranslation } from 'react-i18next'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -27,6 +28,7 @@ export default function RegisterPage() {
   const navigate = useNavigate()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const { t } = useTranslation()
 
   const { login } = useAuthStore()
   const { registrationEnabled, serverSettingsLoaded, loadServerSettings } = useSettingsStore()
@@ -48,19 +50,19 @@ export default function RegisterPage() {
     setError('')
 
     if (!username.trim()) {
-      setError('请输入用户名')
+      setError(t('auth.error.username_required'))
       return
     }
     if (!password) {
-      setError('请输入密码')
+      setError(t('auth.error.password_required'))
       return
     }
     if (password.length < 6) {
-      setError('密码长度至少6位')
+      setError(t('auth.error.password_min'))
       return
     }
     if (password !== confirmPassword) {
-      setError('两次输入的密码不一致')
+      setError(t('auth.error.password_mismatch'))
       return
     }
 
@@ -75,9 +77,9 @@ export default function RegisterPage() {
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'response' in err) {
         const axiosError = err as { response?: { data?: { detail?: string } } }
-        setError(axiosError.response?.data?.detail || '注册失败')
+        setError(axiosError.response?.data?.detail || t('auth.error.register_failed'))
       } else {
-        setError('网络错误，请稍后重试')
+        setError(t('auth.error.network'))
       }
     } finally {
       setIsLoading(false)
@@ -132,7 +134,7 @@ export default function RegisterPage() {
               <MenuBook sx={{ fontSize: 32, color: 'white' }} />
             </Box>
             <Typography variant="h5" fontWeight="bold">
-              注册账号
+              {t('auth.register.title')}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
               Sooklib
@@ -142,14 +144,14 @@ export default function RegisterPage() {
           {serverSettingsLoaded && !registrationEnabled && (
             <>
               <Alert severity="warning" sx={{ mb: 3 }}>
-                当前未开放注册，请联系管理员获取账号。
+                {t('auth.register.closed_notice')}
               </Alert>
               <Button
                 fullWidth
                 variant="contained"
                 onClick={() => navigate('/login')}
               >
-                返回登录
+                {t('auth.register.back_to_login')}
               </Button>
             </>
           )}
@@ -165,7 +167,7 @@ export default function RegisterPage() {
               <Box component="form" onSubmit={handleSubmit}>
                 <TextField
                   fullWidth
-                  label="用户名"
+                  label={t('auth.login.username')}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={isLoading}
@@ -176,7 +178,7 @@ export default function RegisterPage() {
 
                 <TextField
                   fullWidth
-                  label="密码"
+                  label={t('auth.login.password')}
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -200,7 +202,7 @@ export default function RegisterPage() {
 
                 <TextField
                   fullWidth
-                  label="确认密码"
+                  label={t('auth.register.confirm_password')}
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -240,7 +242,7 @@ export default function RegisterPage() {
                   {isLoading ? (
                     <CircularProgress size={24} color="inherit" />
                   ) : (
-                    '注册'
+                    t('auth.register.submit')
                   )}
                 </Button>
               </Box>
@@ -254,13 +256,13 @@ export default function RegisterPage() {
                   mt: 3,
                 }}
               >
-                已有账号？
+                {t('auth.register.have_account')}
                 <Button
                   size="small"
                   onClick={() => navigate('/login')}
                   sx={{ ml: 1 }}
                 >
-                  去登录
+                  {t('auth.register.goto_login')}
                 </Button>
               </Typography>
             </>

@@ -12,5 +12,78 @@
     "title": "User Settings",
     "language": "Language",
     "language_desc": "Choose the interface language"
+  },
+  "common": {
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "close": "Close",
+    "loading": "Loading...",
+    "upload": "Upload"
+  },
+  "auth": {
+    "app_name": "Novel Library",
+    "login": {
+      "title": "Sign In",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Sign In",
+      "need_account": "No account yet?",
+      "goto_register": "Sign up",
+      "admin_only": "Please use an account provided by the administrator"
+    },
+    "register": {
+      "title": "Create Account",
+      "submit": "Sign Up",
+      "confirm_password": "Confirm Password",
+      "closed_notice": "Registration is currently closed. Please contact the admin.",
+      "back_to_login": "Back to Sign In",
+      "have_account": "Already have an account?",
+      "goto_login": "Sign In"
+    },
+    "error": {
+      "username_required": "Please enter a username",
+      "password_required": "Please enter a password",
+      "password_min": "Password must be at least 6 characters",
+      "password_mismatch": "Passwords do not match",
+      "login_failed": "Login failed. Check your username and password.",
+      "register_failed": "Registration failed",
+      "network": "Network error. Please try again."
+    }
+  },
+  "profile": {
+    "title": "Profile",
+    "role_admin": "Administrator",
+    "role_user": "User",
+    "user_fallback": "User",
+    "change_password": "Change Password",
+    "change_password_desc": "Update your account password",
+    "settings": "User Settings",
+    "settings_desc": "Display settings & Telegram binding",
+    "favorites": "Favorites",
+    "favorites_desc": "View your favorite books",
+    "annotations": "Annotations",
+    "annotations_desc": "View and manage my annotations",
+    "history": "Reading History",
+    "history_desc": "View reading history",
+    "stats": "Reading Stats",
+    "stats_desc": "Reading time and habit analysis",
+    "about": "About Sooklib",
+    "about_desc": "Project info & links",
+    "logout": "Sign Out",
+    "password": {
+      "title": "Change Password",
+      "current": "Current Password",
+      "new": "New Password",
+      "confirm": "Confirm New Password",
+      "min_hint": "At least 6 characters"
+    },
+    "message": {
+      "password_required": "Please fill in all password fields",
+      "password_min": "New password must be at least 6 characters",
+      "password_mismatch": "New passwords do not match",
+      "password_updated": "Password updated",
+      "password_failed": "Failed to change password"
+    }
   }
 }

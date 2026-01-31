@@ -1,6 +1,7 @@
 import { Box, Typography, Card, CardContent, Avatar, Divider, List, ListItem, ListItemIcon, ListItemText, Chip, Button, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material'
 import { Person, Lock, History, Favorite, Logout, TrendingUp, FormatQuote, Settings, Info } from '@mui/icons-material'
 import { useAuthStore } from '../stores/authStore'
+import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
@@ -8,6 +9,7 @@ import api from '../services/api'
 export default function ProfilePage() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [favoriteCount, setFavoriteCount] = useState(0)
   const [historyCount, setHistoryCount] = useState(0)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -53,15 +55,15 @@ export default function ProfilePage() {
 
   const handlePasswordSubmit = async () => {
     if (!passwordForm.current || !passwordForm.next || !passwordForm.confirm) {
-      setSnackbar({ open: true, message: '请填写完整的密码信息', severity: 'error' })
+      setSnackbar({ open: true, message: t('profile.message.password_required'), severity: 'error' })
       return
     }
     if (passwordForm.next.length < 6) {
-      setSnackbar({ open: true, message: '新密码长度至少为 6 位', severity: 'error' })
+      setSnackbar({ open: true, message: t('profile.message.password_min'), severity: 'error' })
       return
     }
     if (passwordForm.next !== passwordForm.confirm) {
-      setSnackbar({ open: true, message: '两次输入的新密码不一致', severity: 'error' })
+      setSnackbar({ open: true, message: t('profile.message.password_mismatch'), severity: 'error' })
       return
     }
 
@@ -72,10 +74,10 @@ export default function ProfilePage() {
         new_password: passwordForm.next,
         confirm_password: passwordForm.confirm
       })
-      setSnackbar({ open: true, message: '密码已更新', severity: 'success' })
+      setSnackbar({ open: true, message: t('profile.message.password_updated'), severity: 'success' })
       handleClosePasswordDialog()
     } catch (error: unknown) {
-      const message = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '修改密码失败'
+      const message = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || t('profile.message.password_failed')
       setSnackbar({ open: true, message, severity: 'error' })
     } finally {
       setPasswordSaving(false)
@@ -85,7 +87,7 @@ export default function ProfilePage() {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
-        个人中心
+        {t('profile.title')}
       </Typography>
 
       {/* 用户信息卡片 */}
@@ -95,9 +97,9 @@ export default function ProfilePage() {
             <Person sx={{ fontSize: 32 }} />
           </Avatar>
           <Box>
-            <Typography variant="h6">{user?.displayName || user?.username || '用户'}</Typography>
+            <Typography variant="h6">{user?.displayName || user?.username || t('profile.user_fallback')}</Typography>
             <Typography variant="body2" color="text.secondary">
-              {user?.isAdmin ? '管理员' : '普通用户'}
+              {user?.isAdmin ? t('profile.role_admin') : t('profile.role_user')}
             </Typography>
           </Box>
         </CardContent>
@@ -110,21 +112,21 @@ export default function ProfilePage() {
             <ListItemIcon>
               <Lock />
             </ListItemIcon>
-            <ListItemText primary="修改密码" secondary="更改账户密码" />
+            <ListItemText primary={t('profile.change_password')} secondary={t('profile.change_password_desc')} />
           </ListItem>
           <Divider />
           <ListItem button onClick={() => navigate('/settings')}>
             <ListItemIcon>
               <Settings />
             </ListItemIcon>
-            <ListItemText primary="用户设置" secondary="显示设置与 Telegram 绑定" />
+            <ListItemText primary={t('profile.settings')} secondary={t('profile.settings_desc')} />
           </ListItem>
           <Divider />
           <ListItem button onClick={() => navigate('/favorites')}>
             <ListItemIcon>
               <Favorite />
             </ListItemIcon>
-            <ListItemText primary="我的收藏" secondary="查看收藏的书籍" />
+            <ListItemText primary={t('profile.favorites')} secondary={t('profile.favorites_desc')} />
             <Chip label={favoriteCount} size="small" color="primary" />
           </ListItem>
           <Divider />
@@ -132,14 +134,14 @@ export default function ProfilePage() {
             <ListItemIcon>
               <FormatQuote />
             </ListItemIcon>
-            <ListItemText primary="批注管理" secondary="查看与管理我的批注" />
+            <ListItemText primary={t('profile.annotations')} secondary={t('profile.annotations_desc')} />
           </ListItem>
           <Divider />
           <ListItem button onClick={() => navigate('/history')}>
             <ListItemIcon>
               <History />
             </ListItemIcon>
-            <ListItemText primary="阅读历史" secondary="查看阅读记录" />
+            <ListItemText primary={t('profile.history')} secondary={t('profile.history_desc')} />
             <Chip label={historyCount} size="small" color="secondary" />
           </ListItem>
           <Divider />
@@ -147,31 +149,31 @@ export default function ProfilePage() {
             <ListItemIcon>
               <TrendingUp />
             </ListItemIcon>
-            <ListItemText primary="阅读统计" secondary="查看阅读时长和习惯分析" />
+            <ListItemText primary={t('profile.stats')} secondary={t('profile.stats_desc')} />
           </ListItem>
           <Divider />
           <ListItem button onClick={() => navigate('/about')}>
             <ListItemIcon>
               <Info />
             </ListItemIcon>
-            <ListItemText primary="关于 Sooklib" secondary="项目信息与链接" />
+            <ListItemText primary={t('profile.about')} secondary={t('profile.about_desc')} />
           </ListItem>
           <Divider />
           <ListItem button onClick={logout}>
             <ListItemIcon>
               <Logout color="error" />
             </ListItemIcon>
-            <ListItemText primary="退出登录" primaryTypographyProps={{ color: 'error' }} />
+            <ListItemText primary={t('profile.logout')} primaryTypographyProps={{ color: 'error' }} />
           </ListItem>
         </List>
       </Card>
 
       {/* 修改密码对话框 */}
       <Dialog open={passwordDialogOpen} onClose={handleClosePasswordDialog} maxWidth="xs" fullWidth>
-        <DialogTitle>修改密码</DialogTitle>
+        <DialogTitle>{t('profile.password.title')}</DialogTitle>
         <DialogContent>
           <TextField
-            label="当前密码"
+            label={t('profile.password.current')}
             type="password"
             fullWidth
             margin="dense"
@@ -179,16 +181,16 @@ export default function ProfilePage() {
             onChange={(event) => setPasswordForm(prev => ({ ...prev, current: event.target.value }))}
           />
           <TextField
-            label="新密码"
+            label={t('profile.password.new')}
             type="password"
             fullWidth
             margin="dense"
             value={passwordForm.next}
             onChange={(event) => setPasswordForm(prev => ({ ...prev, next: event.target.value }))}
-            helperText="至少 6 位"
+            helperText={t('profile.password.min_hint')}
           />
           <TextField
-            label="确认新密码"
+            label={t('profile.password.confirm')}
             type="password"
             fullWidth
             margin="dense"
@@ -197,9 +199,9 @@ export default function ProfilePage() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClosePasswordDialog} disabled={passwordSaving}>取消</Button>
+          <Button onClick={handleClosePasswordDialog} disabled={passwordSaving}>{t('common.cancel')}</Button>
           <Button onClick={handlePasswordSubmit} variant="contained" disabled={passwordSaving}>
-            {passwordSaving ? '保存中...' : '保存'}
+            {passwordSaving ? t('common.saving') : t('common.save')}
           </Button>
         </DialogActions>
       </Dialog>

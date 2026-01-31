@@ -12,5 +12,78 @@
     "title": "사용자 설정",
     "language": "언어",
     "language_desc": "인터페이스 언어 선택"
+  },
+  "common": {
+    "save": "저장",
+    "saving": "저장 중...",
+    "cancel": "취소",
+    "close": "닫기",
+    "loading": "로딩 중...",
+    "upload": "업로드"
+  },
+  "auth": {
+    "app_name": "Sooklib",
+    "login": {
+      "title": "로그인",
+      "username": "아이디",
+      "password": "비밀번호",
+      "submit": "로그인",
+      "need_account": "계정이 없으신가요?",
+      "goto_register": "회원가입",
+      "admin_only": "관리자가 제공한 계정을 사용해 주세요"
+    },
+    "register": {
+      "title": "회원가입",
+      "submit": "가입하기",
+      "confirm_password": "비밀번호 확인",
+      "closed_notice": "현재 회원가입이 닫혀 있습니다. 관리자에게 문의하세요.",
+      "back_to_login": "로그인으로 돌아가기",
+      "have_account": "이미 계정이 있나요?",
+      "goto_login": "로그인"
+    },
+    "error": {
+      "username_required": "아이디를 입력하세요",
+      "password_required": "비밀번호를 입력하세요",
+      "password_min": "비밀번호는 6자 이상이어야 합니다",
+      "password_mismatch": "비밀번호가 일치하지 않습니다",
+      "login_failed": "로그인 실패. 아이디/비밀번호를 확인하세요.",
+      "register_failed": "회원가입 실패",
+      "network": "네트워크 오류입니다. 다시 시도하세요."
+    }
+  },
+  "profile": {
+    "title": "프로필",
+    "role_admin": "관리자",
+    "role_user": "사용자",
+    "user_fallback": "사용자",
+    "change_password": "비밀번호 변경",
+    "change_password_desc": "계정 비밀번호를 변경합니다",
+    "settings": "사용자 설정",
+    "settings_desc": "화면 설정 및 Telegram 연동",
+    "favorites": "즐겨찾기",
+    "favorites_desc": "즐겨찾는 책 보기",
+    "annotations": "주석",
+    "annotations_desc": "내 주석 보기 및 관리",
+    "history": "읽기 기록",
+    "history_desc": "읽기 기록 보기",
+    "stats": "읽기 통계",
+    "stats_desc": "읽기 시간과 습관 분석",
+    "about": "Sooklib 소개",
+    "about_desc": "프로젝트 정보 및 링크",
+    "logout": "로그아웃",
+    "password": {
+      "title": "비밀번호 변경",
+      "current": "현재 비밀번호",
+      "new": "새 비밀번호",
+      "confirm": "새 비밀번호 확인",
+      "min_hint": "최소 6자"
+    },
+    "message": {
+      "password_required": "비밀번호 항목을 모두 입력하세요",
+      "password_min": "새 비밀번호는 6자 이상이어야 합니다",
+      "password_mismatch": "새 비밀번호가 일치하지 않습니다",
+      "password_updated": "비밀번호가 변경되었습니다",
+      "password_failed": "비밀번호 변경 실패"
+    }
   }
 }

@@ -12,5 +12,78 @@
     "title": "用户设置",
     "language": "语言",
     "language_desc": "选择界面显示语言"
+  },
+  "common": {
+    "save": "保存",
+    "saving": "保存中...",
+    "cancel": "取消",
+    "close": "关闭",
+    "loading": "加载中...",
+    "upload": "上传"
+  },
+  "auth": {
+    "app_name": "小说书库",
+    "login": {
+      "title": "登录",
+      "username": "用户名",
+      "password": "密码",
+      "submit": "登录",
+      "need_account": "还没有账号？",
+      "goto_register": "去注册",
+      "admin_only": "请使用管理员提供的账号登录"
+    },
+    "register": {
+      "title": "注册账号",
+      "submit": "注册",
+      "confirm_password": "确认密码",
+      "closed_notice": "当前未开放注册，请联系管理员获取账号。",
+      "back_to_login": "返回登录",
+      "have_account": "已有账号？",
+      "goto_login": "去登录"
+    },
+    "error": {
+      "username_required": "请输入用户名",
+      "password_required": "请输入密码",
+      "password_min": "密码长度至少6位",
+      "password_mismatch": "两次输入的密码不一致",
+      "login_failed": "登录失败，请检查用户名和密码",
+      "register_failed": "注册失败",
+      "network": "网络错误，请稍后重试"
+    }
+  },
+  "profile": {
+    "title": "个人中心",
+    "role_admin": "管理员",
+    "role_user": "普通用户",
+    "user_fallback": "用户",
+    "change_password": "修改密码",
+    "change_password_desc": "更改账户密码",
+    "settings": "用户设置",
+    "settings_desc": "显示设置与 Telegram 绑定",
+    "favorites": "我的收藏",
+    "favorites_desc": "查看收藏的书籍",
+    "annotations": "批注管理",
+    "annotations_desc": "查看与管理我的批注",
+    "history": "阅读历史",
+    "history_desc": "查看阅读记录",
+    "stats": "阅读统计",
+    "stats_desc": "查看阅读时长和习惯分析",
+    "about": "关于 Sooklib",
+    "about_desc": "项目信息与链接",
+    "logout": "退出登录",
+    "password": {
+      "title": "修改密码",
+      "current": "当前密码",
+      "new": "新密码",
+      "confirm": "确认新密码",
+      "min_hint": "至少 6 位"
+    },
+    "message": {
+      "password_required": "请填写完整的密码信息",
+      "password_min": "新密码长度至少为 6 位",
+      "password_mismatch": "两次输入的新密码不一致",
+      "password_updated": "密码已更新",
+      "password_failed": "修改密码失败"
+    }
   }
 }

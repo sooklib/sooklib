@@ -12,5 +12,78 @@
     "title": "ユーザー設定",
     "language": "言語",
     "language_desc": "表示言語を選択"
+  },
+  "common": {
+    "save": "保存",
+    "saving": "保存中...",
+    "cancel": "キャンセル",
+    "close": "閉じる",
+    "loading": "読み込み中...",
+    "upload": "アップロード"
+  },
+  "auth": {
+    "app_name": "小説書庫",
+    "login": {
+      "title": "ログイン",
+      "username": "ユーザー名",
+      "password": "パスワード",
+      "submit": "ログイン",
+      "need_account": "アカウントをお持ちではありませんか？",
+      "goto_register": "登録",
+      "admin_only": "管理者から提供されたアカウントでログインしてください"
+    },
+    "register": {
+      "title": "アカウント登録",
+      "submit": "登録",
+      "confirm_password": "パスワード確認",
+      "closed_notice": "現在登録は受け付けていません。管理者に連絡してください。",
+      "back_to_login": "ログインへ戻る",
+      "have_account": "すでにアカウントがありますか？",
+      "goto_login": "ログイン"
+    },
+    "error": {
+      "username_required": "ユーザー名を入力してください",
+      "password_required": "パスワードを入力してください",
+      "password_min": "パスワードは6文字以上必要です",
+      "password_mismatch": "パスワードが一致しません",
+      "login_failed": "ログインに失敗しました。ユーザー名とパスワードを確認してください。",
+      "register_failed": "登録に失敗しました",
+      "network": "ネットワークエラー。しばらくしてから再試行してください。"
+    }
+  },
+  "profile": {
+    "title": "マイページ",
+    "role_admin": "管理者",
+    "role_user": "ユーザー",
+    "user_fallback": "ユーザー",
+    "change_password": "パスワード変更",
+    "change_password_desc": "アカウントのパスワードを変更",
+    "settings": "ユーザー設定",
+    "settings_desc": "表示設定とTelegram連携",
+    "favorites": "お気に入り",
+    "favorites_desc": "お気に入りの書籍を表示",
+    "annotations": "注釈管理",
+    "annotations_desc": "注釈の表示・管理",
+    "history": "読書履歴",
+    "history_desc": "読書履歴を表示",
+    "stats": "読書統計",
+    "stats_desc": "読書時間と傾向分析",
+    "about": "Sooklibについて",
+    "about_desc": "プロジェクト情報とリンク",
+    "logout": "ログアウト",
+    "password": {
+      "title": "パスワード変更",
+      "current": "現在のパスワード",
+      "new": "新しいパスワード",
+      "confirm": "新しいパスワード（確認）",
+      "min_hint": "6文字以上"
+    },
+    "message": {
+      "password_required": "パスワード情報をすべて入力してください",
+      "password_min": "新しいパスワードは6文字以上必要です",
+      "password_mismatch": "新しいパスワードが一致しません",
+      "password_updated": "パスワードを更新しました",
+      "password_failed": "パスワードの変更に失敗しました"
+    }
   }
 }

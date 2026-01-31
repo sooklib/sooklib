@@ -19,6 +19,7 @@ import {
   VisibilityOff,
   MenuBook,
 } from '@mui/icons-material'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
 
@@ -26,9 +27,10 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const { t } = useTranslation()
   
   const { login, isAuthenticated, checkAuth } = useAuthStore()
-  const { registrationEnabled, serverSettingsLoaded, loadServerSettings } = useSettingsStore()
+  const { registrationEnabled, serverSettingsLoaded, loadServerSettings, serverName } = useSettingsStore()
   
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -57,11 +59,11 @@ export default function LoginPage() {
     setError('')
     
     if (!username.trim()) {
-      setError('请输入用户名')
+      setError(t('auth.error.username_required'))
       return
     }
     if (!password) {
-      setError('请输入密码')
+      setError(t('auth.error.password_required'))
       return
     }
 
@@ -72,9 +74,9 @@ export default function LoginPage() {
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'response' in err) {
         const axiosError = err as { response?: { data?: { detail?: string } } }
-        setError(axiosError.response?.data?.detail || '登录失败，请检查用户名和密码')
+        setError(axiosError.response?.data?.detail || t('auth.error.login_failed'))
       } else {
-        setError('网络错误，请稍后重试')
+        setError(t('auth.error.network'))
       }
     } finally {
       setIsLoading(false)
@@ -129,7 +131,7 @@ export default function LoginPage() {
               <MenuBook sx={{ fontSize: 32, color: 'white' }} />
             </Box>
             <Typography variant="h5" fontWeight="bold">
-              小说书库
+              {serverName || t('auth.app_name')}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
               Sooklib
@@ -147,7 +149,7 @@ export default function LoginPage() {
           <Box component="form" onSubmit={handleSubmit}>
             <TextField
               fullWidth
-              label="用户名"
+              label={t('auth.login.username')}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={isLoading}
@@ -158,7 +160,7 @@ export default function LoginPage() {
             
             <TextField
               fullWidth
-              label="密码"
+              label={t('auth.login.password')}
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -198,7 +200,7 @@ export default function LoginPage() {
               {isLoading ? (
                 <CircularProgress size={24} color="inherit" />
               ) : (
-                '登录'
+                t('auth.login.submit')
               )}
             </Button>
           </Box>
@@ -215,13 +217,13 @@ export default function LoginPage() {
           >
             {serverSettingsLoaded && registrationEnabled ? (
               <>
-                还没有账号？
+                {t('auth.login.need_account')}
                 <Button size="small" onClick={() => navigate('/register')} sx={{ ml: 1 }}>
-                  去注册
+                  {t('auth.login.goto_register')}
                 </Button>
               </>
             ) : (
-              '请使用管理员提供的账号登录'
+              t('auth.login.admin_only')
             )}
           </Typography>
         </CardContent>
