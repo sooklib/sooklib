@@ -62,6 +62,25 @@ logging:
   scan_detail: true
   scan_detail_every: 1
 
+# 备份配置
+backup:
+  backup_path: /app/data/backups
+  retention_count: 7
+  auto_backup_enabled: false
+  auto_backup_schedule: "0 2 * * *"
+  default_includes:
+    - database
+    - covers
+    - config
+  compression_level: 6
+  webdav_enabled: false
+  webdav_url: ""
+  webdav_username: ""
+  webdav_password: ""
+  webdav_base_path: "/sooklib-backups"
+  webdav_timeout: 60
+  webdav_verify_ssl: true
+
 # OPDS配置
 opds:
   title: "我的小说书库"

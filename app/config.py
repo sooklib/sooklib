@@ -115,6 +115,14 @@ class BackupConfig(BaseModel):
     auto_backup_schedule: str = "0 2 * * *"  # Cron 表达式（默认每天凌晨2点）
     default_includes: List[str] = Field(default_factory=lambda: ["database", "covers", "config"])  # 默认备份内容
     compression_level: int = 6  # ZIP 压缩级别 (0-9)
+    # WebDAV 备份配置
+    webdav_enabled: bool = False
+    webdav_url: str = ""  # 例如：https://dav.example.com/remote.php/webdav
+    webdav_username: str = ""
+    webdav_password: str = ""
+    webdav_base_path: str = "/sooklib-backups"
+    webdav_timeout: int = 60
+    webdav_verify_ssl: bool = True
 
 
 class TelegramConfig(BaseModel):
@@ -179,6 +187,28 @@ class Config(BaseModel):
             config_data.setdefault("logging", {})["scan_detail_every"] = int(log_scan_detail_every)
         if scan_interval := os.getenv("SCAN_INTERVAL"):
             config_data.setdefault("scanner", {})["interval"] = int(scan_interval)
+        if backup_enabled := os.getenv("BACKUP_AUTO_ENABLED"):
+            config_data.setdefault("backup", {})["auto_backup_enabled"] = backup_enabled.strip().lower() in ("1", "true", "yes", "on")
+        if backup_schedule := os.getenv("BACKUP_AUTO_SCHEDULE"):
+            config_data.setdefault("backup", {})["auto_backup_schedule"] = backup_schedule
+        if backup_path := os.getenv("BACKUP_PATH"):
+            config_data.setdefault("backup", {})["backup_path"] = backup_path
+        if backup_retention := os.getenv("BACKUP_RETENTION_COUNT"):
+            config_data.setdefault("backup", {})["retention_count"] = int(backup_retention)
+        if webdav_enabled := os.getenv("WEBDAV_ENABLED"):
+            config_data.setdefault("backup", {})["webdav_enabled"] = webdav_enabled.strip().lower() in ("1", "true", "yes", "on")
+        if webdav_url := os.getenv("WEBDAV_URL"):
+            config_data.setdefault("backup", {})["webdav_url"] = webdav_url
+        if webdav_user := os.getenv("WEBDAV_USERNAME"):
+            config_data.setdefault("backup", {})["webdav_username"] = webdav_user
+        if webdav_pass := os.getenv("WEBDAV_PASSWORD"):
+            config_data.setdefault("backup", {})["webdav_password"] = webdav_pass
+        if webdav_path := os.getenv("WEBDAV_BASE_PATH"):
+            config_data.setdefault("backup", {})["webdav_base_path"] = webdav_path
+        if webdav_timeout := os.getenv("WEBDAV_TIMEOUT"):
+            config_data.setdefault("backup", {})["webdav_timeout"] = int(webdav_timeout)
+        if webdav_verify := os.getenv("WEBDAV_VERIFY_SSL"):
+            config_data.setdefault("backup", {})["webdav_verify_ssl"] = webdav_verify.strip().lower() in ("1", "true", "yes", "on")
         if app_name := os.getenv("APP_NAME"):
             config_data.setdefault("release", {})["name"] = app_name
         if app_version := os.getenv("APP_VERSION"):

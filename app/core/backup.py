@@ -9,7 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import hashlib
+from urllib.parse import quote
+
 import aiosqlite
+import httpx
 
 from app.config import settings
 from app.utils.logger import log
@@ -83,6 +86,70 @@ class BackupManager:
             for chunk in iter(lambda: f.read(4096), b""):
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
+
+    def _webdav_join(self, base_url: str, path: str) -> str:
+        base = base_url.rstrip("/")
+        if not path:
+            return base
+        return f"{base}/{path.lstrip('/')}"
+
+    def _webdav_encode_path(self, path: str) -> str:
+        return "/".join(quote(part) for part in path.split("/") if part)
+
+    async def _webdav_ensure_path(self, client: httpx.AsyncClient, base_url: str, remote_path: str):
+        """确保 WebDAV 远端目录存在（逐级 MKCOL）"""
+        if not remote_path:
+            return
+        parts = [p for p in remote_path.split("/") if p]
+        current = base_url.rstrip("/")
+        for part in parts:
+            current = f"{current}/{quote(part)}"
+            resp = await client.request("MKCOL", current)
+            if resp.status_code in (200, 201, 204, 405):
+                continue
+            if resp.status_code == 409:
+                raise RuntimeError(f"WebDAV 目录创建失败（父目录不存在）: {current}")
+            raise RuntimeError(f"WebDAV 目录创建失败: {current}, status={resp.status_code}")
+
+    async def _upload_to_webdav(self, backup_file: Path) -> Dict[str, Any]:
+        """上传备份到 WebDAV"""
+        if not settings.backup.webdav_enabled:
+            return {"enabled": False}
+
+        webdav_url = (settings.backup.webdav_url or "").strip()
+        webdav_user = settings.backup.webdav_username
+        webdav_pass = settings.backup.webdav_password
+        if not webdav_url or not webdav_user or not webdav_pass:
+            msg = "WebDAV 未配置完整（url/username/password）"
+            log.error(msg)
+            return {"enabled": True, "success": False, "error": msg}
+
+        remote_base = (settings.backup.webdav_base_path or "").strip()
+        remote_base = remote_base.lstrip("/")
+        remote_rel = f"{remote_base}/{backup_file.name}" if remote_base else backup_file.name
+        remote_rel = self._webdav_encode_path(remote_rel)
+        target_url = self._webdav_join(webdav_url, remote_rel)
+
+        timeout = settings.backup.webdav_timeout
+        verify_ssl = settings.backup.webdav_verify_ssl
+
+        try:
+            async with httpx.AsyncClient(
+                auth=(webdav_user, webdav_pass),
+                timeout=timeout,
+                verify=verify_ssl,
+            ) as client:
+                await self._webdav_ensure_path(client, webdav_url, remote_base)
+                with open(backup_file, "rb") as f:
+                    resp = await client.put(target_url, content=f)
+                if resp.status_code not in (200, 201, 204):
+                    raise RuntimeError(f"WebDAV 上传失败: status={resp.status_code}, body={resp.text[:200]}")
+
+            log.info(f"WebDAV 上传完成: {target_url}")
+            return {"enabled": True, "success": True, "url": target_url}
+        except Exception as e:
+            log.error(f"WebDAV 上传失败: {e}")
+            return {"enabled": True, "success": False, "error": str(e)}
     
     async def create_backup(
         self,
@@ -158,6 +225,8 @@ class BackupManager:
             # 清理旧备份
             await self._cleanup_old_backups()
             
+            webdav_result = await self._upload_to_webdav(backup_file)
+
             return {
                 "success": True,
                 "backup_id": backup_id,
@@ -165,7 +234,8 @@ class BackupManager:
                 "file_size": file_size,
                 "checksum": checksum,
                 "includes": includes,
-                "description": description
+                "description": description,
+                "webdav": webdav_result,
             }
             
         except Exception as e:
@@ -555,7 +625,13 @@ class BackupManager:
             "backup_dir": str(self.backup_dir),
             "retention_count": settings.backup.retention_count,
             "auto_backup_enabled": settings.backup.auto_backup_enabled,
-            "latest_backup": backups[0] if backups else None
+            "latest_backup": backups[0] if backups else None,
+            "webdav": {
+                "enabled": settings.backup.webdav_enabled,
+                "url": settings.backup.webdav_url,
+                "base_path": settings.backup.webdav_base_path,
+                "verify_ssl": settings.backup.webdav_verify_ssl,
+            },
         }
 
 
