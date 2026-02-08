@@ -33,19 +33,26 @@ Sooklib — библиотеко-ориентированный проект в 
 
 Backend:
 - FastAPI
-- SQLAlchemy 2.x + Alembic
+- Uvicorn (ASGI сервер)
+- SQLAlchemy 2.x + Alembic (ORM и миграции)
 - SQLite / aiosqlite
-- APScheduler
+- APScheduler (планировщик)
 - python-telegram-bot
-- chardet / ebooklib
+- Loguru (логи)
+- Pillow (обработка обложек)
+- chardet / ebooklib / mobi / beautifulsoup4 (парсинг текста и ebooks)
 
 Frontend:
 - React 18 + TypeScript
 - Vite
-- MUI
+- MUI (Material UI)
 - Zustand
 - React Router
 - Axios
+- react-i18next (i18n)
+- epub.js / react-pdf (ридеры)
+- react-window (виртуальные списки)
+- vite-plugin-pwa (PWA)
 
 ## Образы и версии
 

@@ -33,19 +33,26 @@ Sooklib은 Emby 스타일의 **서재 중심** 프로젝트입니다.
 
 백엔드:
 - FastAPI
-- SQLAlchemy 2.x + Alembic
+- Uvicorn (ASGI 서버)
+- SQLAlchemy 2.x + Alembic (ORM & 마이그레이션)
 - SQLite / aiosqlite
-- APScheduler
+- APScheduler (스케줄러)
 - python-telegram-bot
-- chardet / ebooklib
+- Loguru (로깅)
+- Pillow (커버 이미지 처리)
+- chardet / ebooklib / mobi / beautifulsoup4 (텍스트·전자책 파싱)
 
 프론트엔드:
 - React 18 + TypeScript
 - Vite
-- MUI
+- MUI (Material UI)
 - Zustand
 - React Router
 - Axios
+- react-i18next (i18n)
+- epub.js / react-pdf (리더)
+- react-window (가상 리스트)
+- vite-plugin-pwa (PWA)
 
 ## 이미지 & 버전
 

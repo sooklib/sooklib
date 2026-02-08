@@ -33,19 +33,26 @@ Sooklib 是以書庫為核心、對標 Emby 的書城／書庫專案。
 
 後端：
 - FastAPI
-- SQLAlchemy 2.x + Alembic
+- Uvicorn（ASGI 伺服器）
+- SQLAlchemy 2.x + Alembic（ORM 與遷移）
 - SQLite / aiosqlite（預設）
-- APScheduler
+- APScheduler（排程）
 - python-telegram-bot
-- chardet / ebooklib
+- Loguru（日誌）
+- Pillow（封面處理）
+- chardet / ebooklib / mobi / beautifulsoup4（文本與電子書解析）
 
 前端：
 - React 18 + TypeScript
 - Vite
-- MUI
+- MUI（Material UI）
 - Zustand
 - React Router
 - Axios
+- react-i18next（國際化）
+- epub.js / react-pdf（閱讀器）
+- react-window（虛擬列表）
+- vite-plugin-pwa（PWA）
 
 ## 鏡像與版本
 

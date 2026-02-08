@@ -33,19 +33,26 @@ Sooklib は書庫を中心とした Emby 風の書城／書庫プロジェクト
 
 バックエンド：
 - FastAPI
-- SQLAlchemy 2.x + Alembic
+- Uvicorn（ASGI サーバー）
+- SQLAlchemy 2.x + Alembic（ORM / マイグレーション）
 - SQLite / aiosqlite
-- APScheduler
+- APScheduler（スケジューラ）
 - python-telegram-bot
-- chardet / ebooklib
+- Loguru（ログ）
+- Pillow（カバー画像処理）
+- chardet / ebooklib / mobi / beautifulsoup4（テキスト/電子書籍解析）
 
 フロントエンド：
 - React 18 + TypeScript
 - Vite
-- MUI
+- MUI（Material UI）
 - Zustand
 - React Router
 - Axios
+- react-i18next（i18n）
+- epub.js / react-pdf（リーダー）
+- react-window（仮想リスト）
+- vite-plugin-pwa（PWA）
 
 ## イメージ & バージョン
 
