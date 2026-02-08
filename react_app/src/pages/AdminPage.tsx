@@ -1,7 +1,7 @@
 import { useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Box, Tabs, Tab, Typography, Container, FormControl, InputLabel, Select, MenuItem, useMediaQuery, useTheme } from '@mui/material'
-import { People, LibraryBooks, Backup, Image, TextFields, LocalOffer, Psychology, Code, Settings } from '@mui/icons-material'
+import { People, LibraryBooks, Backup, Image, TextFields, LocalOffer, Psychology, Code, Settings, ReceiptLong } from '@mui/icons-material'
 import SettingsTab from '../components/admin/SettingsTab'
 import UsersTab from '../components/admin/UsersTab'
 import LibrariesTab from '../components/admin/LibrariesTab'
@@ -11,6 +11,7 @@ import FontsTab from '../components/admin/FontsTab'
 import TagsTab from '../components/admin/TagsTab'
 import AITab from '../components/admin/AITab'
 import PatternsTab from '../components/admin/PatternsTab'
+import LogsTab from '../components/admin/LogsTab'
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -28,7 +29,7 @@ function TabPanel(props: TabPanelProps) {
 }
 
 // Tab 名称映射
-const TAB_NAMES = ['settings', 'users', 'libraries', 'tags', 'patterns', 'ai', 'backup', 'covers', 'fonts']
+const TAB_NAMES = ['settings', 'users', 'libraries', 'tags', 'patterns', 'ai', 'backup', 'covers', 'fonts', 'logs']
 
 export default function AdminPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -82,6 +83,7 @@ export default function AdminPage() {
               <MenuItem value={6}>备份管理</MenuItem>
               <MenuItem value={7}>封面管理</MenuItem>
               <MenuItem value={8}>字体管理</MenuItem>
+              <MenuItem value={9}>系统日志</MenuItem>
             </Select>
           </FormControl>
         ) : (
@@ -101,6 +103,7 @@ export default function AdminPage() {
             <Tab icon={<Backup />} label="备份管理" iconPosition="start" />
             <Tab icon={<Image />} label="封面管理" iconPosition="start" />
             <Tab icon={<TextFields />} label="字体管理" iconPosition="start" />
+            <Tab icon={<ReceiptLong />} label="系统日志" iconPosition="start" />
           </Tabs>
         )}
       </Box>
@@ -131,6 +134,9 @@ export default function AdminPage() {
       </TabPanel>
       <TabPanel value={tabValue} index={8}>
         <FontsTab />
+      </TabPanel>
+      <TabPanel value={tabValue} index={9}>
+        <LogsTab />
       </TabPanel>
     </Container>
   )

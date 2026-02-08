@@ -7,8 +7,9 @@ import os
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
+from collections import deque
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Header
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Header, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -96,6 +97,81 @@ def admin_required(current_user: User = Depends(get_current_user)):
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return current_user
+
+
+def _read_log_lines(log_path: Path, max_lines: int) -> List[str]:
+    """读取日志最后若干行，避免全量读取。"""
+    lines = deque(maxlen=max_lines)
+    try:
+        with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                lines.append(line.rstrip("\n"))
+    except FileNotFoundError:
+        return []
+    return list(lines)
+
+
+@router.get("/admin/logs")
+async def get_system_logs(
+    limit: int = Query(200, ge=1, le=2000),
+    level: Optional[str] = Query(None),
+    keyword: Optional[str] = Query(None),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    current_user: User = Depends(admin_required),
+):
+    """获取系统日志（默认返回最新日志）。"""
+    log_path = Path(settings.logging.file)
+    if not log_path.exists():
+        return {
+            "lines": [],
+            "total": 0,
+            "size": 0,
+            "updated_at": None,
+            "path": str(log_path),
+        }
+
+    tail_lines = min(20000, max(2000, limit * 10))
+    lines = _read_log_lines(log_path, tail_lines)
+
+    level_filter = level.upper() if level else None
+    if level_filter == "WARN":
+        level_filter = "WARNING"
+
+    if level_filter:
+        lines = [line for line in lines if f"| {level_filter}" in line]
+    if keyword:
+        keyword_lower = keyword.lower()
+        lines = [line for line in lines if keyword_lower in line.lower()]
+
+    total = len(lines)
+    if order == "desc":
+        lines = list(reversed(lines))
+
+    lines = lines[:limit]
+
+    stat = log_path.stat()
+    return {
+        "lines": lines,
+        "total": total,
+        "size": stat.st_size,
+        "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "path": str(log_path),
+    }
+
+
+@router.get("/admin/logs/download")
+async def download_system_logs(
+    current_user: User = Depends(admin_required),
+):
+    """下载系统日志文件。"""
+    log_path = Path(settings.logging.file)
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="日志文件不存在")
+    return FileResponse(
+        path=str(log_path),
+        filename=log_path.name,
+        media_type="text/plain",
+    )
 
 
 # ==================== 用户管理 API ====================
