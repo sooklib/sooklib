@@ -177,8 +177,11 @@ OPDS 使用 HTTP Basic Auth：
 - 文档仓库：https://github.com/sooklib/sooklib-docs
 - 快速开始：https://github.com/sooklib/sooklib-docs/blob/main/docs/getting-started.md
 - Docker 部署：https://github.com/sooklib/sooklib-docs/blob/main/docs/docker-deployment.md
+- 运维指南：https://github.com/sooklib/sooklib-docs/blob/main/docs/ops-guide.md
 - 配置说明：https://github.com/sooklib/sooklib-docs/blob/main/docs/configuration.md
+- API 参考（Swagger）：https://github.com/sooklib/sooklib-docs/blob/main/docs/api-reference.md
 - 更新通道：https://github.com/sooklib/sooklib-docs/blob/main/docs/update-channel.md
+- 用户手册：https://github.com/sooklib/sooklib-docs/blob/main/docs/user-manual.md
 - Telegram 机器人：https://github.com/sooklib/sooklib-docs/blob/main/docs/telegram-bot.md
 - AI 功能：https://github.com/sooklib/sooklib-docs/blob/main/docs/ai-features.md
 
