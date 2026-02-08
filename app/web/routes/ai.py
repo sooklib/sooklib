@@ -5,6 +5,7 @@ AI 路由
 import json
 import asyncio
 import uuid
+from pathlib import Path
 from dataclasses import asdict
 from typing import List, Optional, Dict
 import re
@@ -548,6 +549,136 @@ class AIPatternCreate(BaseModel):
     example_result: Optional[str] = None
 
 
+class AIPatternUpdate(BaseModel):
+    """更新 AI 规则请求"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    regex_pattern: Optional[str] = None
+    title_group: Optional[int] = None
+    author_group: Optional[int] = None
+    extra_group: Optional[int] = None
+    priority: Optional[int] = None
+    library_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    example_filename: Optional[str] = None
+    example_result: Optional[str] = None
+
+
+def _safe_load_example_result(raw: Optional[str]):
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return raw
+
+
+def _pattern_to_payload(pattern: FilenamePattern) -> dict:
+    return {
+        "id": pattern.id,
+        "name": pattern.name,
+        "description": pattern.description,
+        "regex_pattern": pattern.regex_pattern,
+        "title_group": pattern.title_group,
+        "author_group": pattern.author_group,
+        "extra_group": pattern.extra_group,
+        "tag_group": 0,
+        "priority": pattern.priority,
+        "is_active": pattern.is_active,
+        "library_id": pattern.library_id,
+        "match_count": pattern.match_count,
+        "success_count": pattern.success_count,
+        "accuracy_rate": pattern.accuracy_rate,
+        "created_by": pattern.created_by,
+        "created_at": pattern.created_at,
+        "updated_at": pattern.updated_at,
+        "example_filename": pattern.example_filename,
+        "example_result": _safe_load_example_result(pattern.example_result),
+    }
+
+
+def _extract_group(match: re.Match, index: int) -> Optional[str]:
+    if not index or index <= 0:
+        return None
+    try:
+        return match.group(index)
+    except IndexError:
+        return None
+
+
+def _suggest_pattern_from_filename(filename: str) -> Optional[dict]:
+    name = Path(filename).name
+    stem = name.rsplit(".", 1)[0]
+    candidates = [
+        {
+            "regex": r"^《(.+?)》\\s*(?:作者[:：]?\\s*)?(.+)$",
+            "title_group": 1,
+            "author_group": 2,
+            "extra_group": 0,
+            "explanation": "匹配《书名》作者格式",
+        },
+        {
+            "regex": r"^(.+?)《(.+?)》$",
+            "title_group": 2,
+            "author_group": 1,
+            "extra_group": 0,
+            "explanation": "匹配作者《书名》格式",
+        },
+        {
+            "regex": r"^(.+?)[\\(（](.+?)[\\)）]$",
+            "title_group": 1,
+            "author_group": 2,
+            "extra_group": 0,
+            "explanation": "匹配书名(作者)格式",
+        },
+        {
+            "regex": r"^[【\\[](.+?)[】\\]]\\s*(.+)$",
+            "title_group": 2,
+            "author_group": 1,
+            "extra_group": 0,
+            "explanation": "匹配【作者】书名格式",
+        },
+    ]
+
+    separators = [" - ", " -", "- ", "-", " _ ", " _", "_ ", "_", "—", "–"]
+    for sep in separators:
+        if sep in stem:
+            candidates.insert(
+                0,
+                {
+                    "regex": rf"^(.+?)\\s*{re.escape(sep.strip())}\\s*(.+)$",
+                    "title_group": 1,
+                    "author_group": 2,
+                    "extra_group": 0,
+                    "explanation": f"匹配分隔符 “{sep.strip()}” 格式",
+                },
+            )
+            break
+
+    for item in candidates:
+        try:
+            compiled = re.compile(item["regex"])
+        except re.error:
+            continue
+        match = compiled.search(stem)
+        if match:
+            title = _extract_group(match, item["title_group"])
+            author = _extract_group(match, item["author_group"])
+            return {
+                "name": "AI建议规则",
+                "regex": item["regex"],
+                "title_group": item["title_group"],
+                "author_group": item["author_group"],
+                "extra_group": item["extra_group"],
+                "parsed": {
+                    "title": title.strip() if title else None,
+                    "author": author.strip() if author else None,
+                },
+                "explanation": item["explanation"],
+            }
+    return None
+
+
 @router.get("/config")
 async def get_admin_ai_config(
     current_user: User = Depends(get_current_admin)
@@ -628,6 +759,146 @@ async def create_ai_pattern(
     await db.refresh(new_pattern)
 
     return {"success": True, "pattern_id": new_pattern.id, "duplicated": False}
+
+
+@router.get("/patterns")
+async def list_ai_patterns(
+    active_only: bool = Query(False, description="仅返回启用的规则"),
+    library_id: Optional[int] = Query(None, description="筛选指定书库"),
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取 AI 文件名规则列表"""
+    query = select(FilenamePattern)
+    if active_only:
+        query = query.where(FilenamePattern.is_active == True)
+    if library_id is not None:
+        query = query.where(FilenamePattern.library_id == library_id)
+    query = query.order_by(FilenamePattern.priority.desc(), FilenamePattern.id.desc())
+    result = await db.execute(query)
+    patterns = result.scalars().all()
+    return [_pattern_to_payload(pattern) for pattern in patterns]
+
+
+@router.get("/patterns/{pattern_id}")
+async def get_ai_pattern(
+    pattern_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取单个 AI 文件名规则"""
+    pattern = await db.get(FilenamePattern, pattern_id)
+    if not pattern:
+        raise HTTPException(status_code=404, detail="规则不存在")
+    return _pattern_to_payload(pattern)
+
+
+@router.put("/patterns/{pattern_id}")
+async def update_ai_pattern(
+    pattern_id: int,
+    payload: AIPatternUpdate,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新 AI 文件名规则"""
+    pattern = await db.get(FilenamePattern, pattern_id)
+    if not pattern:
+        raise HTTPException(status_code=404, detail="规则不存在")
+
+    update_data = payload.model_dump(exclude_none=True)
+
+    if "regex_pattern" in update_data:
+        try:
+            re.compile(update_data["regex_pattern"])
+        except re.error as e:
+            raise HTTPException(status_code=400, detail=f"正则无效: {e}")
+
+    if "library_id" in update_data:
+        if update_data["library_id"] is not None:
+            lib_result = await db.execute(
+                select(Library).where(Library.id == update_data["library_id"])
+            )
+            if not lib_result.scalar_one_or_none():
+                raise HTTPException(status_code=404, detail="书库不存在")
+
+    if "example_result" in update_data and update_data["example_result"] is not None:
+        if isinstance(update_data["example_result"], (dict, list)):
+            update_data["example_result"] = json.dumps(update_data["example_result"], ensure_ascii=False)
+
+    for field, value in update_data.items():
+        setattr(pattern, field, value)
+
+    await db.commit()
+    await db.refresh(pattern)
+    return _pattern_to_payload(pattern)
+
+
+@router.delete("/patterns/{pattern_id}")
+async def delete_ai_pattern(
+    pattern_id: int,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除 AI 文件名规则"""
+    pattern = await db.get(FilenamePattern, pattern_id)
+    if not pattern:
+        raise HTTPException(status_code=404, detail="规则不存在")
+    await db.delete(pattern)
+    await db.commit()
+    return {"success": True}
+
+
+@router.post("/patterns/test")
+async def test_ai_pattern(
+    regex_pattern: str = Query(..., description="正则表达式"),
+    filename: str = Query(..., description="文件名"),
+    title_group: int = Query(1, description="书名组"),
+    author_group: int = Query(2, description="作者组"),
+    extra_group: int = Query(0, description="额外组"),
+    tag_group: int = Query(0, description="标签组"),
+    current_user: User = Depends(get_current_admin),
+):
+    """测试规则匹配效果"""
+    try:
+        compiled = re.compile(regex_pattern)
+    except re.error as e:
+        raise HTTPException(status_code=400, detail=f"正则无效: {e}")
+
+    match = compiled.search(filename)
+    target = filename
+    if not match:
+        target = get_filename_stem(filename)
+        match = compiled.search(target)
+
+    if not match:
+        return {"success": False, "error": "未匹配到结果"}
+
+    parsed = {
+        "title": _extract_group(match, title_group),
+        "author": _extract_group(match, author_group),
+        "extra": _extract_group(match, extra_group),
+    }
+    if tag_group and tag_group > 0:
+        parsed["tags"] = _extract_group(match, tag_group)
+
+    return {
+        "success": True,
+        "target": target,
+        "parsed": parsed,
+    }
+
+
+@router.post("/patterns/suggest")
+async def suggest_ai_pattern(
+    filename: str = Query(..., description="文件名"),
+    current_user: User = Depends(get_current_admin),
+):
+    """根据文件名建议解析规则"""
+    suggestion = _suggest_pattern_from_filename(filename)
+    if not suggestion:
+        return {"success": False, "error": "未能生成合适的规则建议"}
+    suggestion["success"] = True
+    return suggestion
 
 
 @router.put("/provider")

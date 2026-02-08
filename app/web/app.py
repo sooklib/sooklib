@@ -135,7 +135,7 @@ app.include_router(ai_recommendations.router, prefix="/api/ai", tags=["AI推荐"
 app.include_router(opds.router, prefix="/opds", tags=["OPDS"])
 app.include_router(pages.router, tags=["页面"])
 app.include_router(reader.router, prefix="/api", tags=["阅读器"])
-app.include_router(share.router, prefix="/api", tags=["分享"])
+app.include_router(share.router, tags=["分享"])
 app.include_router(fonts.router, tags=["字体管理"])
 app.include_router(settings_routes.router, prefix="/api", tags=["系统设置"])
 

@@ -268,6 +268,18 @@ async def create_tag(
     }
 
 
+@router.post("/admin/tags", response_model=TagResponse)
+async def create_tag_admin_alias(
+    tag_data: TagCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """
+    管理端创建标签（兼容前端使用 /api/admin/tags）
+    """
+    return await create_tag(tag_data, db, admin)
+
+
 @router.get("/tags", response_model=List[TagResponse])
 async def list_tags(
     type: Optional[str] = None,
