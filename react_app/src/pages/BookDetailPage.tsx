@@ -4,7 +4,7 @@ import {
   Box, Typography, Card, CardContent, Button, Chip, Grid,
   CircularProgress, Alert, IconButton, Divider, LinearProgress, Paper,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-  FormControl, InputLabel, Select, MenuItem
+  FormControl, InputLabel, Select, MenuItem, Rating
 } from '@mui/material'
 import {
   ArrowBack, MenuBook, Download, Favorite, FavoriteBorder,
@@ -14,6 +14,7 @@ import {
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { formatDateShort, formatDateTime, formatRelativeTime } from '../utils/dateUtils'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
@@ -93,10 +94,33 @@ interface BookGroupInfo {
   is_grouped: boolean
 }
 
+interface BookReview {
+  id: number
+  rating: number
+  content: string | null
+  created_at: string
+  updated_at: string
+  user_id: number
+  user_name: string
+  user_display_name: string | null
+  is_owner: boolean
+}
+
+interface ReviewListResponse {
+  average_rating: number | null
+  rating_count: number
+  reviews: BookReview[]
+  page: number
+  limit: number
+  total: number
+  my_review: BookReview | null
+}
+
 export default function BookDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { token, user } = useAuthStore()
+  const { ratingsEnabled, loadServerSettings } = useSettingsStore()
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -145,8 +169,25 @@ export default function BookDetailPage() {
   const [kindleSuccess, setKindleSuccess] = useState<string | null>(null)
   const [kindleLoading, setKindleLoading] = useState(false)
 
+  // 评分与评论
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [reviews, setReviews] = useState<BookReview[]>([])
+  const [reviewAverage, setReviewAverage] = useState<number | null>(null)
+  const [reviewTotal, setReviewTotal] = useState(0)
+  const [reviewPage, setReviewPage] = useState(1)
+  const [myReview, setMyReview] = useState<BookReview | null>(null)
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
+  const [reviewForm, setReviewForm] = useState({ rating: 0, content: '' })
+  const [reviewSaving, setReviewSaving] = useState(false)
+  const [reviewDeleting, setReviewDeleting] = useState(false)
+
   // 设置页面标题 - 必须在条件return之前调用
   useDocumentTitle(book?.title || '书籍详情')
+
+  useEffect(() => {
+    loadServerSettings()
+  }, [loadServerSettings])
 
   useEffect(() => {
     if (id) {
@@ -166,6 +207,18 @@ export default function BookDetailPage() {
       setSelectedTagIds(book?.tags?.map((tag) => tag.id) || [])
     }
   }, [tagDialogOpen, book])
+
+  useEffect(() => {
+    if (!id) return
+    if (!ratingsEnabled) {
+      setReviews([])
+      setReviewAverage(null)
+      setReviewTotal(0)
+      setMyReview(null)
+      return
+    }
+    loadReviews(1, false)
+  }, [id, ratingsEnabled])
 
   const loadBook = async () => {
     try {
@@ -217,6 +270,87 @@ export default function BookDetailPage() {
     } catch (err) {
       // 可能没有批注，不需要报错
       console.debug('没有批注')
+    }
+  }
+
+  const loadReviews = async (page = 1, append = false) => {
+    if (!id) return
+    try {
+      setReviewLoading(true)
+      setReviewError('')
+      const response = await api.get<ReviewListResponse>(`/api/books/${id}/reviews`, {
+        params: { page, limit: 5 }
+      })
+      const data = response.data
+      setReviewAverage(data.average_rating)
+      setReviewTotal(data.total ?? data.rating_count ?? 0)
+      setReviewPage(data.page)
+      setMyReview(data.my_review)
+      setReviews(prev => (append ? [...prev, ...data.reviews] : data.reviews))
+    } catch (err: any) {
+      console.error('加载评分失败:', err)
+      if (err.response?.status === 403) {
+        setReviewError('评分功能已关闭')
+      } else {
+        setReviewError(err.response?.data?.detail || '加载评分失败')
+      }
+    } finally {
+      setReviewLoading(false)
+    }
+  }
+
+  const handleOpenReviewDialog = () => {
+    if (!token) {
+      alert('请先登录')
+      return
+    }
+    if (!ratingsEnabled) {
+      alert('评分功能已关闭')
+      return
+    }
+    setReviewForm({
+      rating: myReview?.rating || 0,
+      content: myReview?.content || ''
+    })
+    setReviewDialogOpen(true)
+  }
+
+  const handleSaveReview = async () => {
+    if (!reviewForm.rating) {
+      alert('请先选择评分')
+      return
+    }
+    try {
+      setReviewSaving(true)
+      setReviewError('')
+      await api.post(`/api/books/${id}/reviews`, {
+        rating: reviewForm.rating,
+        content: reviewForm.content?.trim() || null
+      })
+      setReviewDialogOpen(false)
+      await loadReviews(1, false)
+    } catch (err: any) {
+      console.error('保存评价失败:', err)
+      alert(err.response?.data?.detail || '保存评价失败')
+    } finally {
+      setReviewSaving(false)
+    }
+  }
+
+  const handleDeleteReview = async () => {
+    if (!confirm('确定要删除你的评价吗？')) {
+      return
+    }
+    try {
+      setReviewDeleting(true)
+      await api.delete(`/api/books/${id}/reviews/me`)
+      setReviewDialogOpen(false)
+      await loadReviews(1, false)
+    } catch (err: any) {
+      console.error('删除评价失败:', err)
+      alert(err.response?.data?.detail || '删除评价失败')
+    } finally {
+      setReviewDeleting(false)
     }
   }
 
@@ -536,6 +670,7 @@ export default function BookDetailPage() {
   const primaryFormat = extractExtension(book.file_format || book.versions?.find(v => v.is_primary)?.file_format || book.versions?.[0]?.file_format || '')
   const kindleInputSupported = ['epub', 'mobi', 'azw3', 'txt'].includes(primaryFormat)
   const kindleFormatOptions = primaryFormat === 'txt' ? ['txt'] : ['azw3', 'mobi', 'epub']
+  const hasMoreReviews = reviewTotal > reviews.length
 
   return (
     <Box sx={{ p: 3 }}>
@@ -790,6 +925,108 @@ export default function BookDetailPage() {
             </IconButton>
           </Box>
 
+          {/* 评分与评论 */}
+          {ratingsEnabled ? (
+            <Card variant="outlined" sx={{ mb: 3 }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+                  <Box>
+                    <Typography variant="h6" gutterBottom>
+                      评分与评论
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography variant="h4" fontWeight="bold">
+                        {reviewAverage !== null ? reviewAverage.toFixed(1) : '暂无'}
+                      </Typography>
+                      <Rating value={reviewAverage || 0} precision={0.1} readOnly />
+                      <Typography variant="body2" color="text.secondary">
+                        {reviewTotal} 人评分
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Button variant="contained" startIcon={<Star />} onClick={handleOpenReviewDialog}>
+                      {myReview ? '修改我的评价' : '写评价'}
+                    </Button>
+                    {myReview && (
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={reviewDeleting ? <CircularProgress size={18} /> : <Delete />}
+                        onClick={handleDeleteReview}
+                        disabled={reviewDeleting}
+                      >
+                        删除评价
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+
+                {myReview && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography variant="subtitle2">我的评价：</Typography>
+                      <Rating value={myReview.rating} size="small" readOnly />
+                      <Typography variant="body2" color="text.secondary">
+                        {formatDateTime(myReview.created_at)}
+                      </Typography>
+                    </Box>
+                    {myReview.content && (
+                      <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-line' }}>
+                        {myReview.content}
+                      </Typography>
+                    )}
+                  </Alert>
+                )}
+
+                {reviewLoading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={20} />
+                    <Typography variant="body2" color="text.secondary">加载评分中...</Typography>
+                  </Box>
+                ) : reviewError ? (
+                  <Alert severity="warning">{reviewError}</Alert>
+                ) : reviews.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">还没有人评价这本书</Typography>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {reviews.map((review) => (
+                      <Paper key={review.id} variant="outlined" sx={{ p: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                          <Typography variant="subtitle2">
+                            {review.user_display_name || review.user_name || '匿名用户'}
+                          </Typography>
+                          <Rating value={review.rating} readOnly size="small" />
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          {formatDateTime(review.created_at)}
+                        </Typography>
+                        {review.content && (
+                          <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-line' }}>
+                            {review.content}
+                          </Typography>
+                        )}
+                      </Paper>
+                    ))}
+                    {hasMoreReviews && (
+                      <Button
+                        variant="outlined"
+                        onClick={() => loadReviews(reviewPage + 1, true)}
+                        disabled={reviewLoading}
+                      >
+                        加载更多
+                      </Button>
+                    )}
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              评分功能已关闭
+            </Alert>
+          )}
+
           <Divider sx={{ mb: 3 }} />
 
           {/* 简介 */}
@@ -875,6 +1112,43 @@ export default function BookDetailPage() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* 评分与评论对话框 */}
+      <Dialog open={reviewDialogOpen} onClose={() => setReviewDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{myReview ? '编辑评价' : '写评价'}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Box>
+              <Typography variant="subtitle2" gutterBottom>
+                评分
+              </Typography>
+              <Rating
+                value={reviewForm.rating}
+                onChange={(_, value) => setReviewForm({ ...reviewForm, rating: value || 0 })}
+              />
+            </Box>
+            <TextField
+              label="评论（可选）"
+              value={reviewForm.content}
+              onChange={(e) => setReviewForm({ ...reviewForm, content: e.target.value })}
+              multiline
+              minRows={3}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReviewDialogOpen(false)}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveReview}
+            disabled={reviewSaving}
+            startIcon={reviewSaving ? <CircularProgress size={18} /> : <Star />}
+          >
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 发送到 Kindle 对话框 */}
       <Dialog open={kindleDialogOpen} onClose={() => setKindleDialogOpen(false)} maxWidth="sm" fullWidth>

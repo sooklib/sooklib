@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, and_, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -24,7 +24,7 @@ from app.core.kindle_mailer import send_to_kindle
 from app.core.kindle_settings import load_kindle_settings
 from app.core.websocket import manager
 from app.database import get_db
-from app.models import Author, Book, Library, ReadingProgress, ReadingSession, User
+from app.models import Author, Book, BookReview, Library, ReadingProgress, ReadingSession, User
 from app.web.routes.auth import get_current_admin, get_current_user
 from app.web.routes.settings import load_settings
 from app.web.routes.dependencies import get_accessible_book, get_accessible_library
@@ -109,6 +109,36 @@ class BookUpdate(BaseModel):
 class BookTagsUpdate(BaseModel):
     """书籍标签更新请求"""
     tag_ids: List[int]
+
+
+class ReviewCreate(BaseModel):
+    """评分/评论请求"""
+    rating: int = Field(..., ge=1, le=5)
+    content: Optional[str] = None
+
+
+class ReviewResponse(BaseModel):
+    """评分/评论响应"""
+    id: int
+    rating: int
+    content: Optional[str]
+    created_at: str
+    updated_at: str
+    user_id: int
+    user_name: str
+    user_display_name: Optional[str] = None
+    is_owner: bool
+
+
+class ReviewListResponse(BaseModel):
+    """评分/评论列表响应"""
+    average_rating: Optional[float]
+    rating_count: int
+    reviews: List[ReviewResponse]
+    page: int
+    limit: int
+    total: int
+    my_review: Optional[ReviewResponse] = None
 
 
 class StatsResponse(BaseModel):
@@ -679,6 +709,156 @@ async def get_book(
         "versions": versions_data,
         "available_formats": available_formats,
     }
+
+
+@router.get("/books/{book_id}/reviews", response_model=ReviewListResponse)
+async def list_book_reviews(
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=50)
+):
+    """获取书籍评分与评论"""
+    settings = load_settings()
+    if not settings.get("ratings_enabled", True):
+        raise HTTPException(status_code=403, detail="评分功能未启用")
+
+    stats_result = await db.execute(
+        select(func.count(BookReview.id), func.avg(BookReview.rating))
+        .where(BookReview.book_id == book.id)
+    )
+    total, average_rating = stats_result.one()
+    total = int(total or 0)
+    average_rating = float(average_rating) if average_rating is not None else None
+
+    offset = (page - 1) * limit
+    result = await db.execute(
+        select(BookReview, User)
+        .join(User, User.id == BookReview.user_id)
+        .where(BookReview.book_id == book.id)
+        .order_by(BookReview.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = result.all()
+
+    reviews: List[ReviewResponse] = []
+    for review, user in rows:
+        reviews.append({
+            "id": review.id,
+            "rating": review.rating,
+            "content": review.content,
+            "created_at": review.created_at.isoformat() if review.created_at else "",
+            "updated_at": review.updated_at.isoformat() if review.updated_at else "",
+            "user_id": user.id,
+            "user_name": user.username,
+            "user_display_name": user.display_name,
+            "is_owner": user.id == current_user.id,
+        })
+
+    my_review = None
+    my_result = await db.execute(
+        select(BookReview).where(
+            and_(BookReview.book_id == book.id, BookReview.user_id == current_user.id)
+        )
+    )
+    my = my_result.scalars().first()
+    if my:
+        my_review = {
+            "id": my.id,
+            "rating": my.rating,
+            "content": my.content,
+            "created_at": my.created_at.isoformat() if my.created_at else "",
+            "updated_at": my.updated_at.isoformat() if my.updated_at else "",
+            "user_id": current_user.id,
+            "user_name": current_user.username,
+            "user_display_name": current_user.display_name,
+            "is_owner": True,
+        }
+
+    return {
+        "average_rating": average_rating,
+        "rating_count": total,
+        "reviews": reviews,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "my_review": my_review,
+    }
+
+
+@router.post("/books/{book_id}/reviews", response_model=ReviewResponse)
+async def upsert_book_review(
+    review_data: ReviewCreate,
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """提交或更新书籍评分与评论"""
+    settings = load_settings()
+    if not settings.get("ratings_enabled", True):
+        raise HTTPException(status_code=403, detail="评分功能未启用")
+
+    result = await db.execute(
+        select(BookReview).where(
+            and_(BookReview.book_id == book.id, BookReview.user_id == current_user.id)
+        )
+    )
+    review = result.scalars().first()
+
+    if review:
+        review.rating = review_data.rating
+        review.content = review_data.content
+        review.updated_at = datetime.utcnow()
+    else:
+        review = BookReview(
+            user_id=current_user.id,
+            book_id=book.id,
+            rating=review_data.rating,
+            content=review_data.content
+        )
+        db.add(review)
+
+    await db.commit()
+    await db.refresh(review)
+
+    return {
+        "id": review.id,
+        "rating": review.rating,
+        "content": review.content,
+        "created_at": review.created_at.isoformat() if review.created_at else "",
+        "updated_at": review.updated_at.isoformat() if review.updated_at else "",
+        "user_id": current_user.id,
+        "user_name": current_user.username,
+        "user_display_name": current_user.display_name,
+        "is_owner": True,
+    }
+
+
+@router.delete("/books/{book_id}/reviews/me")
+async def delete_my_review(
+    book: Book = Depends(get_accessible_book),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除自己的评分与评论"""
+    settings = load_settings()
+    if not settings.get("ratings_enabled", True):
+        raise HTTPException(status_code=403, detail="评分功能未启用")
+
+    result = await db.execute(
+        select(BookReview).where(
+            and_(BookReview.book_id == book.id, BookReview.user_id == current_user.id)
+        )
+    )
+    review = result.scalars().first()
+    if not review:
+        raise HTTPException(status_code=404, detail="评分不存在")
+
+    await db.delete(review)
+    await db.commit()
+    return {"status": "deleted"}
 
 
 @router.post("/books/{book_id}/send-to-kindle")

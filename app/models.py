@@ -40,6 +40,7 @@ class User(Base):
     library_permissions = relationship("LibraryPermission", back_populates="user", cascade="all, delete-orphan")
     favorites = relationship("Favorite", back_populates="user", cascade="all, delete-orphan")
     user_book_tags = relationship("UserBookTag", back_populates="user", cascade="all, delete-orphan")
+    book_reviews = relationship("BookReview", back_populates="user", cascade="all, delete-orphan")
 
 
 class Library(Base):
@@ -185,6 +186,7 @@ class Book(Base):
     book_tags = relationship("BookTag", back_populates="book", cascade="all, delete-orphan")
     favorites = relationship("Favorite", back_populates="book", cascade="all, delete-orphan")
     user_book_tags = relationship("UserBookTag", back_populates="book", cascade="all, delete-orphan")
+    reviews = relationship("BookReview", back_populates="book", cascade="all, delete-orphan")
     
     # 便捷属性：通过book_tags访问tags
     tags = association_proxy("book_tags", "tag")
@@ -265,6 +267,27 @@ class Favorite(Base):
     # 唯一约束
     __table_args__ = (
         UniqueConstraint('user_id', 'book_id', name='uq_user_favorite'),
+    )
+
+
+class BookReview(Base):
+    """书籍评分与评论"""
+    __tablename__ = "book_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    book_id = Column(Integer, ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
+    rating = Column(Integer, nullable=False)  # 1-5 星
+    content = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 关系
+    user = relationship("User", back_populates="book_reviews")
+    book = relationship("Book", back_populates="reviews")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'book_id', name='uq_user_book_review'),
     )
 
 
