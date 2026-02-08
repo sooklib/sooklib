@@ -19,6 +19,9 @@ from app.web.routes.dependencies import get_current_user
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
+LATEST_PER_LIBRARY = 20
+LATEST_FETCH_MULTIPLIER = 4
+
 
 # ============= 响应模型 =============
 
@@ -289,12 +292,12 @@ async def get_dashboard(
                 selectinload(Book.versions),
                 selectinload(Book.group)  # 加载组信息
             ).where(Book.library_id == library.id)
-            .order_by(desc(Book.added_at)).limit(30)
+            .order_by(desc(Book.added_at)).limit(LATEST_PER_LIBRARY * LATEST_FETCH_MULTIPLIER)
         )
         all_books = list(result.scalars().all())
         
         # 过滤同组重复书籍
-        filtered_books = filter_books_by_group(all_books)[:10]
+        filtered_books = filter_books_by_group(all_books)[:LATEST_PER_LIBRARY]
         
         if filtered_books:
             latest_by_library.append(LibraryLatest(

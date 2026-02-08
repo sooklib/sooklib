@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Box, Typography, Grid, Card, CardContent, Alert, Button, IconButton, Stack, LinearProgress } from '@mui/material'
-import { MenuBook, LibraryBooks, Favorite, ChevronRight, Person, AutoAwesome, Storage } from '@mui/icons-material'
+import { Box, Typography, Grid, Card, CardContent, Alert, Button, IconButton, Stack, LinearProgress, useMediaQuery } from '@mui/material'
+import { MenuBook, LibraryBooks, Favorite, ChevronLeft, ChevronRight, Person, AutoAwesome, Storage } from '@mui/icons-material'
 import api from '../services/api'
 import { DashboardResponse, LibrarySummary, ContinueReadingItem, LibraryLatest } from '../types'
 import BookCard from '../components/BookCard'
@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const { coverSize } = useSettingsStore()
   const primaryColor = usePrimaryColor()
   const morandiPalette = useMemo(() => generateMorandiPalette(primaryColor), [primaryColor])
+  const showScrollArrows = useMediaQuery('(hover: hover) and (pointer: fine)')
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -102,6 +103,7 @@ export default function DashboardPage() {
   }, [data?.latest_by_library])
 
   const posterWidth = coverSize === 'small' ? 120 : coverSize === 'medium' ? 150 : 180
+  const posterScrollStep = posterWidth * 4
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -268,17 +270,9 @@ export default function DashboardPage() {
             <Typography variant="h6">继续阅读</Typography>
           </Box>
           {/* 使用水平滚动容器，类似 Emby */}
-          <Box 
-            sx={{ 
-              display: 'flex', 
-              overflowX: 'auto', 
-              pb: 2, 
-              mx: -2, 
-              px: 2,
-              gap: 2,
-              '::-webkit-scrollbar': { display: 'none' },
-              scrollbarWidth: 'none'
-            }}
+          <ScrollableRow
+            showArrows={showScrollArrows}
+            scrollStep={320}
           >
             {loading ? (
               [1, 2, 3].map((i) => (
@@ -293,7 +287,7 @@ export default function DashboardPage() {
                 </Box>
               ))
             )}
-          </Box>
+          </ScrollableRow>
         </Box>
       )}
 
@@ -306,20 +300,9 @@ export default function DashboardPage() {
               <ChevronRight />
             </IconButton>
           </Box>
-          <Box
-            sx={{
-              display: 'flex',
-              gap: 2,
-              overflowX: 'auto',
-              pb: 2,
-              mx: -2,
-              px: 2,
-              '::-webkit-scrollbar': { display: 'none' },
-              scrollbarWidth: 'none',
-            }}
-          >
+          <ScrollableRow showArrows={showScrollArrows} scrollStep={posterScrollStep}>
             {loading
-              ? Array.from({ length: 10 }).map((_, i) => (
+              ? Array.from({ length: 20 }).map((_, i) => (
                   <Box key={i} sx={{ width: posterWidth, flexShrink: 0 }}>
                     <BookCard loading />
                   </Box>
@@ -329,7 +312,7 @@ export default function DashboardPage() {
                     <BookCard book={book} />
                   </Box>
                 ))}
-          </Box>
+          </ScrollableRow>
         </Box>
       )}
 
@@ -384,20 +367,9 @@ export default function DashboardPage() {
               <ChevronRight />
             </IconButton>
           </Box>
-          <Box
-            sx={{
-              display: 'flex',
-              gap: 2,
-              overflowX: 'auto',
-              pb: 2,
-              mx: -2,
-              px: 2,
-              '::-webkit-scrollbar': { display: 'none' },
-              scrollbarWidth: 'none',
-            }}
-          >
+          <ScrollableRow showArrows={showScrollArrows} scrollStep={posterScrollStep}>
             {loading
-              ? [1, 2, 3, 4, 5].map((i) => (
+              ? Array.from({ length: 20 }).map((_, i) => (
                   <Box key={i} sx={{ width: posterWidth, flexShrink: 0 }}>
                     <BookCard loading />
                   </Box>
@@ -407,7 +379,7 @@ export default function DashboardPage() {
                     <BookCard book={book} />
                   </Box>
                 ))}
-          </Box>
+          </ScrollableRow>
         </Box>
       ))}
 
@@ -423,6 +395,83 @@ export default function DashboardPage() {
           </Typography>
         </Box>
       )}
+    </Box>
+  )
+}
+
+function ScrollableRow({
+  children,
+  showArrows,
+  scrollStep,
+}: {
+  children: ReactNode
+  showArrows: boolean
+  scrollStep: number
+}) {
+  const rowRef = useRef<HTMLDivElement | null>(null)
+
+  const handleScroll = (direction: 'left' | 'right') => {
+    const el = rowRef.current
+    if (!el) return
+    const base = Math.max(el.clientWidth * 0.9, scrollStep)
+    const offset = direction === 'left' ? -base : base
+    el.scrollBy({ left: offset, behavior: 'smooth' })
+  }
+
+  return (
+    <Box sx={{ position: 'relative' }}>
+      {showArrows && (
+        <>
+          <IconButton
+            onClick={() => handleScroll('left')}
+            aria-label="向左滚动"
+            sx={{
+              position: 'absolute',
+              left: 4,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 2,
+              bgcolor: 'rgba(0,0,0,0.45)',
+              color: 'common.white',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.65)' },
+            }}
+          >
+            <ChevronLeft />
+          </IconButton>
+          <IconButton
+            onClick={() => handleScroll('right')}
+            aria-label="向右滚动"
+            sx={{
+              position: 'absolute',
+              right: 4,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 2,
+              bgcolor: 'rgba(0,0,0,0.45)',
+              color: 'common.white',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.65)' },
+            }}
+          >
+            <ChevronRight />
+          </IconButton>
+        </>
+      )}
+      <Box
+        ref={rowRef}
+        sx={{
+          display: 'flex',
+          gap: 2,
+          overflowX: 'auto',
+          pb: 2,
+          mx: -2,
+          px: 2,
+          scrollBehavior: 'smooth',
+          '::-webkit-scrollbar': { display: 'none' },
+          scrollbarWidth: 'none',
+        }}
+      >
+        {children}
+      </Box>
     </Box>
   )
 }
