@@ -187,9 +187,29 @@ class Book(Base):
     favorites = relationship("Favorite", back_populates="book", cascade="all, delete-orphan")
     user_book_tags = relationship("UserBookTag", back_populates="book", cascade="all, delete-orphan")
     reviews = relationship("BookReview", back_populates="book", cascade="all, delete-orphan")
+    translations = relationship("BookTranslation", back_populates="book", cascade="all, delete-orphan")
     
     # 便捷属性：通过book_tags访问tags
     tags = association_proxy("book_tags", "tag")
+
+
+class BookTranslation(Base):
+    """书籍翻译表（多语种元数据）"""
+    __tablename__ = "book_translations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    book_id = Column(Integer, ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
+    language = Column(String(10), nullable=False, index=True)  # 例如 zh-CN/en/ja
+    title = Column(String(200), nullable=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    book = relationship("Book", back_populates="translations")
+
+    __table_args__ = (
+        UniqueConstraint("book_id", "language", name="uq_book_translation"),
+    )
 
 
 class BookVersion(Base):

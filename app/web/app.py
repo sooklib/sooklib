@@ -4,8 +4,9 @@ FastAPI Web应用
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -13,6 +14,7 @@ from app.config import settings
 from app.database import init_database
 from app.core.scheduler import backup_scheduler
 from app.bot.bot import telegram_bot
+from app.utils.i18n import parse_accept_language, resolve_message_key, translate_message
 from app.utils.logger import log
 
 
@@ -63,6 +65,48 @@ app = FastAPI(
     version=settings.release.version,
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    locale = parse_accept_language(request.headers.get("accept-language"))
+    message_key, params, fallback = resolve_message_key(exc.detail)
+    localized = translate_message(message_key, locale, params) if message_key else None
+    detail = localized or fallback or translate_message("internal_error", locale) or "Internal Server Error"
+    content = {"detail": detail}
+    if message_key:
+        content["message_key"] = message_key
+        if params:
+            content["params"] = params
+    return JSONResponse(status_code=exc.status_code, content=content)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    locale = parse_accept_language(request.headers.get("accept-language"))
+    detail = translate_message("validation_error", locale) or "Validation error"
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": detail,
+            "message_key": "validation_error",
+            "errors": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    locale = parse_accept_language(request.headers.get("accept-language"))
+    detail = translate_message("internal_error", locale) or "Internal Server Error"
+    log.error(f"Unhandled exception: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": detail,
+            "message_key": "internal_error",
+        },
+    )
 
 # 配置静态文件（仅CSS/JS等）
 app.mount("/static", StaticFiles(directory="app/web/static", html=False), name="static")
