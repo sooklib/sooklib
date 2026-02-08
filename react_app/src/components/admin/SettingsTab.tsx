@@ -24,6 +24,8 @@ interface SystemSettings {
   server_description: string
   welcome_message: string
   registration_enabled: boolean
+  ratings_enabled: boolean
+  rankings_enabled: boolean
   chapter_patterns_strong?: string[]
   chapter_patterns_weak?: string[]
   chapter_inline_pattern?: string
@@ -85,6 +87,8 @@ export default function SettingsTab() {
     server_description: '',
     welcome_message: '',
     registration_enabled: true,
+    ratings_enabled: true,
+    rankings_enabled: true,
     chapter_patterns_strong: DEFAULT_CHAPTER_STRONG_PATTERNS,
     chapter_patterns_weak: DEFAULT_CHAPTER_WEAK_PATTERNS,
     chapter_inline_pattern: DEFAULT_CHAPTER_INLINE_PATTERN,
@@ -170,6 +174,8 @@ export default function SettingsTab() {
         server_description: data.server_description || '',
         welcome_message: data.welcome_message || '',
         registration_enabled: Boolean(data.registration_enabled),
+        ratings_enabled: data.ratings_enabled ?? true,
+        rankings_enabled: data.rankings_enabled ?? true,
         chapter_patterns_strong: strongPatterns,
         chapter_patterns_weak: weakPatterns,
         chapter_inline_pattern: inlinePattern,
@@ -495,6 +501,37 @@ export default function SettingsTab() {
           <Typography variant="body2" color="text.secondary">
             关闭后，只有管理员可以创建新用户
           </Typography>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            功能开关
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            控制评分与排行榜相关功能是否对外显示与可用
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings.ratings_enabled}
+                  onChange={(e) => setSettings({ ...settings, ratings_enabled: e.target.checked })}
+                />
+              }
+              label="启用评分与评论"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings.rankings_enabled}
+                  onChange={(e) => setSettings({ ...settings, rankings_enabled: e.target.checked })}
+                />
+              }
+              label="启用排行榜与阅读统计排名"
+            />
+          </Box>
         </CardContent>
       </Card>
 

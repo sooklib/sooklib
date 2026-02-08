@@ -10,6 +10,8 @@ interface SystemSettings {
   server_description: string
   welcome_message: string
   registration_enabled: boolean
+  ratings_enabled?: boolean
+  rankings_enabled?: boolean
 }
 
 interface SettingsState {
@@ -29,6 +31,8 @@ interface SettingsState {
   serverDescription: string
   welcomeMessage: string
   registrationEnabled: boolean
+  ratingsEnabled: boolean
+  rankingsEnabled: boolean
   serverSettingsLoaded: boolean
   loadServerSettings: () => Promise<void>
 }
@@ -51,6 +55,8 @@ export const useSettingsStore = create<SettingsState>()(
       serverDescription: '个人小说管理系统',
       welcomeMessage: '欢迎使用小说书库',
       registrationEnabled: false,
+      ratingsEnabled: true,
+      rankingsEnabled: true,
       serverSettingsLoaded: false,
       
       setCoverSize: (size) => set({ coverSize: size }),
@@ -70,6 +76,8 @@ export const useSettingsStore = create<SettingsState>()(
             serverDescription: data.server_description || '',
             welcomeMessage: data.welcome_message || '',
             registrationEnabled: Boolean(data.registration_enabled),
+            ratingsEnabled: data.ratings_enabled ?? true,
+            rankingsEnabled: data.rankings_enabled ?? true,
             serverSettingsLoaded: true,
           })
         } catch (error) {

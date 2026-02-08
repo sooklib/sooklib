@@ -32,6 +32,7 @@ import {
   DevicesOther as DeviceIcon,
 } from '@mui/icons-material'
 import api from '../services/api'
+import { useSettingsStore } from '../stores/settingsStore'
 import type {
   ReadingStatsOverview,
   DailyReadingStatsResponse,
@@ -42,6 +43,7 @@ import type {
 
 export default function ReadingStatsPage() {
   const navigate = useNavigate()
+  const { rankingsEnabled, serverSettingsLoaded, loadServerSettings } = useSettingsStore()
   
   // 数据状态
   const [overview, setOverview] = useState<ReadingStatsOverview | null>(null)
@@ -58,32 +60,50 @@ export default function ReadingStatsPage() {
 
   // 加载数据
   useEffect(() => {
-    loadAllStats()
-  }, [])
+    loadServerSettings()
+  }, [loadServerSettings])
 
   useEffect(() => {
-    loadDailyStats()
-  }, [dailyDays])
+    if (serverSettingsLoaded) {
+      loadAllStats()
+    }
+  }, [serverSettingsLoaded, rankingsEnabled])
 
   useEffect(() => {
-    loadHourlyStats()
-  }, [hourlyDays])
+    if (serverSettingsLoaded) {
+      loadDailyStats()
+    }
+  }, [dailyDays, serverSettingsLoaded])
+
+  useEffect(() => {
+    if (serverSettingsLoaded) {
+      loadHourlyStats()
+    }
+  }, [hourlyDays, serverSettingsLoaded])
 
   const loadAllStats = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [overviewRes, dailyRes, hourlyRes, bookRes, sessionRes] = await Promise.all([
+      const requests = [
         api.get('/api/stats/reading/overview'),
         api.get(`/api/stats/reading/daily?days=${dailyDays}`),
         api.get(`/api/stats/reading/hourly?days=${hourlyDays}`),
-        api.get('/api/stats/reading/books?limit=10'),
         api.get('/api/stats/reading/recent-sessions?limit=10'),
-      ])
+      ]
+      if (rankingsEnabled) {
+        requests.push(api.get('/api/stats/reading/books?limit=10'))
+      }
+      const results = await Promise.all(requests)
+      const overviewRes = results[0]
+      const dailyRes = results[1]
+      const hourlyRes = results[2]
+      const sessionRes = results[3]
+      const bookRes = rankingsEnabled ? results[4] : null
       setOverview(overviewRes.data)
       setDailyStats(dailyRes.data)
       setHourlyStats(hourlyRes.data)
-      setBookStats(bookRes.data)
+      setBookStats(bookRes ? (bookRes as any).data : null)
       setRecentSessions(sessionRes.data)
     } catch (err: any) {
       console.error('加载阅读统计失败:', err)
@@ -344,82 +364,93 @@ export default function ReadingStatsPage() {
         </Grid>
 
         {/* 书籍阅读排行 */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              阅读时长排行
-            </Typography>
-            {bookStats && bookStats.book_stats.length > 0 ? (
-              <TableContainer sx={{ maxHeight: 400 }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>书名</TableCell>
-                      <TableCell align="right">时长</TableCell>
-                      <TableCell align="right">进度</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {bookStats.book_stats.map((book, index) => (
-                      <TableRow
-                        key={book.book_id}
-                        hover
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => navigate(`/books/${book.book_id}`)}
-                      >
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Avatar
-                              sx={{
-                                width: 24,
-                                height: 24,
-                                fontSize: 12,
-                                bgcolor: index < 3 ? 'primary.main' : 'grey.400',
-                              }}
-                            >
-                              {index + 1}
-                            </Avatar>
-                            <Box>
-                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                                {book.title}
-                              </Typography>
-                              {book.author_name && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {book.author_name}
+        {rankingsEnabled ? (
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                阅读时长排行
+              </Typography>
+              {bookStats && bookStats.book_stats.length > 0 ? (
+                <TableContainer sx={{ maxHeight: 400 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>书名</TableCell>
+                        <TableCell align="right">时长</TableCell>
+                        <TableCell align="right">进度</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {bookStats.book_stats.map((book, index) => (
+                        <TableRow
+                          key={book.book_id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => navigate(`/books/${book.book_id}`)}
+                        >
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Avatar
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  fontSize: 12,
+                                  bgcolor: index < 3 ? 'primary.main' : 'grey.400',
+                                }}
+                              >
+                                {index + 1}
+                              </Avatar>
+                              <Box>
+                                <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                  {book.title}
                                 </Typography>
+                                {book.author_name && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {book.author_name}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {book.total_duration_formatted}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <LinearProgress
+                                variant="determinate"
+                                value={book.progress * 100}
+                                sx={{ width: 60 }}
+                              />
+                              {book.finished && (
+                                <CheckIcon color="success" sx={{ fontSize: 16 }} />
                               )}
                             </Box>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body2">
-                            {book.total_duration_formatted}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <LinearProgress
-                              variant="determinate"
-                              value={book.progress * 100}
-                              sx={{ width: 60 }}
-                            />
-                            {book.finished && (
-                              <CheckIcon color="success" sx={{ fontSize: 16 }} />
-                            )}
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                暂无阅读记录
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                  暂无阅读记录
+                </Typography>
+              )}
+            </Paper>
+          </Grid>
+        ) : (
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                阅读时长排行
               </Typography>
-            )}
-          </Paper>
-        </Grid>
+              <Alert severity="info">排行榜功能已关闭</Alert>
+            </Paper>
+          </Grid>
+        )}
 
         {/* 最近阅读会话 */}
         <Grid item xs={12} md={6}>

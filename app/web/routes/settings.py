@@ -31,6 +31,8 @@ DEFAULT_SETTINGS = {
     "server_description": "个人小说管理系统",
     "welcome_message": "欢迎使用小说书库",
     "registration_enabled": False,
+    "ratings_enabled": True,
+    "rankings_enabled": True,
     "default_theme": "system",
     "default_cover_size": "medium",
     "chapter_max_title_length": 50,
@@ -104,6 +106,8 @@ class SettingsUpdate(BaseModel):
     server_description: Optional[str] = None
     welcome_message: Optional[str] = None
     registration_enabled: Optional[bool] = None
+    ratings_enabled: Optional[bool] = None
+    rankings_enabled: Optional[bool] = None
     default_theme: Optional[str] = None
     default_cover_size: Optional[str] = None
     chapter_max_title_length: Optional[int] = None
@@ -157,6 +161,8 @@ async def get_public_settings():
         "server_description": settings.get("server_description", DEFAULT_SETTINGS["server_description"]),
         "welcome_message": settings.get("welcome_message", DEFAULT_SETTINGS["welcome_message"]),
         "registration_enabled": settings.get("registration_enabled", DEFAULT_SETTINGS["registration_enabled"]),
+        "ratings_enabled": settings.get("ratings_enabled", DEFAULT_SETTINGS["ratings_enabled"]),
+        "rankings_enabled": settings.get("rankings_enabled", DEFAULT_SETTINGS["rankings_enabled"]),
     }
 
 
@@ -177,6 +183,8 @@ async def get_settings(
         "welcome_message": settings.get("welcome_message"),
         "default_theme": settings.get("default_theme"),
         "default_cover_size": settings.get("default_cover_size"),
+        "ratings_enabled": settings.get("ratings_enabled", DEFAULT_SETTINGS["ratings_enabled"]),
+        "rankings_enabled": settings.get("rankings_enabled", DEFAULT_SETTINGS["rankings_enabled"]),
     }
 
 

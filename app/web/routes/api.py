@@ -26,6 +26,7 @@ from app.core.websocket import manager
 from app.database import get_db
 from app.models import Author, Book, Library, ReadingProgress, ReadingSession, User
 from app.web.routes.auth import get_current_admin, get_current_user
+from app.web.routes.settings import load_settings
 from app.web.routes.dependencies import get_accessible_book, get_accessible_library
 from app.utils.logger import log
 from app.utils.permissions import check_book_access, get_accessible_library_ids
@@ -1792,6 +1793,9 @@ async def get_book_reading_stats(
     current_user: User = Depends(get_current_user)
 ):
     """获取各书籍阅读时长统计"""
+    settings = load_settings()
+    if not settings.get("rankings_enabled", True):
+        raise HTTPException(status_code=403, detail="排行榜功能已关闭")
     # 按书籍分组统计阅读时长
     result = await db.execute(
         select(
