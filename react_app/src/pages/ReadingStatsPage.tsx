@@ -38,6 +38,10 @@ import type {
   DailyReadingStatsResponse,
   HourlyReadingStatsResponse,
   BookReadingStatsResponse,
+  AuthorReadingStatsResponse,
+  LibraryReadingStatsResponse,
+  FormatReadingStatsResponse,
+  TagReadingStatsResponse,
   RecentSessionsResponse,
 } from '../types'
 
@@ -50,6 +54,10 @@ export default function ReadingStatsPage() {
   const [dailyStats, setDailyStats] = useState<DailyReadingStatsResponse | null>(null)
   const [hourlyStats, setHourlyStats] = useState<HourlyReadingStatsResponse | null>(null)
   const [bookStats, setBookStats] = useState<BookReadingStatsResponse | null>(null)
+  const [authorStats, setAuthorStats] = useState<AuthorReadingStatsResponse | null>(null)
+  const [libraryStats, setLibraryStats] = useState<LibraryReadingStatsResponse | null>(null)
+  const [formatStats, setFormatStats] = useState<FormatReadingStatsResponse | null>(null)
+  const [tagStats, setTagStats] = useState<TagReadingStatsResponse | null>(null)
   const [recentSessions, setRecentSessions] = useState<RecentSessionsResponse | null>(null)
   
   // UI状态
@@ -85,26 +93,41 @@ export default function ReadingStatsPage() {
     setLoading(true)
     setError(null)
     try {
-      const requests = [
+      const baseRequests = [
         api.get('/api/stats/reading/overview'),
         api.get(`/api/stats/reading/daily?days=${dailyDays}`),
         api.get(`/api/stats/reading/hourly?days=${hourlyDays}`),
         api.get('/api/stats/reading/recent-sessions?limit=10'),
       ]
-      if (rankingsEnabled) {
-        requests.push(api.get('/api/stats/reading/books?limit=10'))
-      }
-      const results = await Promise.all(requests)
-      const overviewRes = results[0]
-      const dailyRes = results[1]
-      const hourlyRes = results[2]
-      const sessionRes = results[3]
-      const bookRes = rankingsEnabled ? results[4] : null
+      const rankingRequests = rankingsEnabled
+        ? [
+            api.get('/api/stats/reading/books?limit=10'),
+            api.get('/api/stats/reading/authors?limit=10'),
+            api.get('/api/stats/reading/libraries?limit=10'),
+            api.get('/api/stats/reading/formats?limit=10'),
+            api.get('/api/stats/reading/tags?limit=10'),
+          ]
+        : []
+      const results = await Promise.all([...baseRequests, ...rankingRequests])
+      const [overviewRes, dailyRes, hourlyRes, sessionRes] = results
       setOverview(overviewRes.data)
       setDailyStats(dailyRes.data)
       setHourlyStats(hourlyRes.data)
-      setBookStats(bookRes ? (bookRes as any).data : null)
       setRecentSessions(sessionRes.data)
+      if (rankingsEnabled) {
+        const [bookRes, authorRes, libraryRes, formatRes, tagRes] = results.slice(4)
+        setBookStats(bookRes.data)
+        setAuthorStats(authorRes.data)
+        setLibraryStats(libraryRes.data)
+        setFormatStats(formatRes.data)
+        setTagStats(tagRes.data)
+      } else {
+        setBookStats(null)
+        setAuthorStats(null)
+        setLibraryStats(null)
+        setFormatStats(null)
+        setTagStats(null)
+      }
     } catch (err: any) {
       console.error('加载阅读统计失败:', err)
       setError(err.response?.data?.detail || '加载失败')
@@ -147,6 +170,18 @@ export default function ReadingStatsPage() {
   const getMaxHourlyDuration = () => {
     if (!hourlyStats) return 1
     return Math.max(...hourlyStats.hourly_stats.map(h => h.duration_seconds), 1)
+  }
+
+  const getTagTypeLabel = (type: string) => {
+    switch (type) {
+      case 'genre':
+        return '类型'
+      case 'age_rating':
+        return '分级'
+      case 'custom':
+      default:
+        return '标签'
+    }
   }
 
   if (loading) {
@@ -505,6 +540,251 @@ export default function ReadingStatsPage() {
             )}
           </Paper>
         </Grid>
+
+        {/* 作者阅读排行 */}
+        {rankingsEnabled && (
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                作者阅读排行
+              </Typography>
+              {authorStats && authorStats.author_stats.length > 0 ? (
+                <TableContainer sx={{ maxHeight: 400 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>作者</TableCell>
+                        <TableCell align="right">时长</TableCell>
+                        <TableCell align="right">书籍数</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {authorStats.author_stats.map((author, index) => (
+                        <TableRow key={`${author.author_id ?? 'unknown'}-${index}`} hover>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Avatar
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  fontSize: 12,
+                                  bgcolor: index < 3 ? 'primary.main' : 'grey.400',
+                                }}
+                              >
+                                {index + 1}
+                              </Avatar>
+                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                {author.author_name}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {author.total_duration_formatted}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {author.book_count}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                  暂无阅读记录
+                </Typography>
+              )}
+            </Paper>
+          </Grid>
+        )}
+
+        {/* 书库阅读排行 */}
+        {rankingsEnabled && (
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                书库阅读排行
+              </Typography>
+              {libraryStats && libraryStats.library_stats.length > 0 ? (
+                <TableContainer sx={{ maxHeight: 400 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>书库</TableCell>
+                        <TableCell align="right">时长</TableCell>
+                        <TableCell align="right">书籍数</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {libraryStats.library_stats.map((library, index) => (
+                        <TableRow key={`${library.library_id}-${index}`} hover>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Avatar
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  fontSize: 12,
+                                  bgcolor: index < 3 ? 'primary.main' : 'grey.400',
+                                }}
+                              >
+                                {index + 1}
+                              </Avatar>
+                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                {library.library_name}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {library.total_duration_formatted}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {library.book_count}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                  暂无阅读记录
+                </Typography>
+              )}
+            </Paper>
+          </Grid>
+        )}
+
+        {/* 格式阅读排行 */}
+        {rankingsEnabled && (
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                格式阅读排行
+              </Typography>
+              {formatStats && formatStats.format_stats.length > 0 ? (
+                <TableContainer sx={{ maxHeight: 400 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>格式</TableCell>
+                        <TableCell align="right">时长</TableCell>
+                        <TableCell align="right">书籍数</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {formatStats.format_stats.map((format, index) => (
+                        <TableRow key={`${format.file_format}-${index}`} hover>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Avatar
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  fontSize: 12,
+                                  bgcolor: index < 3 ? 'primary.main' : 'grey.400',
+                                }}
+                              >
+                                {index + 1}
+                              </Avatar>
+                              <Chip size="small" label={format.file_format} />
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {format.total_duration_formatted}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {format.book_count}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                  暂无阅读记录
+                </Typography>
+              )}
+            </Paper>
+          </Grid>
+        )}
+
+        {/* 标签阅读排行 */}
+        {rankingsEnabled && (
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                标签阅读排行
+              </Typography>
+              {tagStats && tagStats.tag_stats.length > 0 ? (
+                <TableContainer sx={{ maxHeight: 400 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>标签</TableCell>
+                        <TableCell align="right">时长</TableCell>
+                        <TableCell align="right">书籍数</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {tagStats.tag_stats.map((tag, index) => (
+                        <TableRow key={`${tag.tag_id}-${index}`} hover>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Avatar
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  fontSize: 12,
+                                  bgcolor: index < 3 ? 'primary.main' : 'grey.400',
+                                }}
+                              >
+                                {index + 1}
+                              </Avatar>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>
+                                  {tag.tag_name}
+                                </Typography>
+                                <Chip size="small" label={getTagTypeLabel(tag.tag_type)} />
+                              </Box>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {tag.total_duration_formatted}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2">
+                              {tag.book_count}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                  暂无阅读记录
+                </Typography>
+              )}
+            </Paper>
+          </Grid>
+        )}
       </Grid>
     </Box>
   )

@@ -292,6 +292,74 @@ export interface BookReadingStatsResponse {
   book_stats: BookReadingStat[]
 }
 
+// 作者阅读统计项
+export interface AuthorReadingStat {
+  author_id: number | null
+  author_name: string
+  total_duration_seconds: number
+  total_duration_formatted: string
+  session_count: number
+  book_count: number
+  last_read: string | null
+}
+
+// 作者阅读统计响应
+export interface AuthorReadingStatsResponse {
+  limit: number
+  author_stats: AuthorReadingStat[]
+}
+
+// 书库阅读统计项
+export interface LibraryReadingStat {
+  library_id: number
+  library_name: string
+  total_duration_seconds: number
+  total_duration_formatted: string
+  session_count: number
+  book_count: number
+  last_read: string | null
+}
+
+// 书库阅读统计响应
+export interface LibraryReadingStatsResponse {
+  limit: number
+  library_stats: LibraryReadingStat[]
+}
+
+// 格式阅读统计项
+export interface FormatReadingStat {
+  file_format: string
+  total_duration_seconds: number
+  total_duration_formatted: string
+  session_count: number
+  book_count: number
+  last_read: string | null
+}
+
+// 格式阅读统计响应
+export interface FormatReadingStatsResponse {
+  limit: number
+  format_stats: FormatReadingStat[]
+}
+
+// 标签阅读统计项
+export interface TagReadingStat {
+  tag_id: number
+  tag_name: string
+  tag_type: string
+  total_duration_seconds: number
+  total_duration_formatted: string
+  session_count: number
+  book_count: number
+  last_read: string | null
+}
+
+// 标签阅读统计响应
+export interface TagReadingStatsResponse {
+  limit: number
+  tag_stats: TagReadingStat[]
+}
+
 // 阅读会话记录
 export interface ReadingSessionRecord {
   id: number

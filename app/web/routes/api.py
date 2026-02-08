@@ -24,7 +24,7 @@ from app.core.kindle_mailer import send_to_kindle
 from app.core.kindle_settings import load_kindle_settings
 from app.core.websocket import manager
 from app.database import get_db
-from app.models import Author, Book, BookReview, Library, ReadingProgress, ReadingSession, User
+from app.models import Author, Book, BookReview, BookTag, BookVersion, Library, ReadingProgress, ReadingSession, Tag, User
 from app.web.routes.auth import get_current_admin, get_current_user
 from app.web.routes.settings import load_settings
 from app.web.routes.dependencies import get_accessible_book, get_accessible_library
@@ -2022,6 +2022,197 @@ async def get_book_reading_stats(
     return {
         "limit": limit,
         "book_stats": book_stats
+    }
+
+
+@router.get("/stats/reading/authors")
+async def get_author_reading_stats(
+    limit: int = Query(20, ge=1, le=100, description="返回数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取作者阅读时长排行"""
+    settings = load_settings()
+    if not settings.get("rankings_enabled", True):
+        raise HTTPException(status_code=403, detail="排行榜功能已关闭")
+
+    result = await db.execute(
+        select(
+            Book.author_id.label("author_id"),
+            Author.name.label("author_name"),
+            func.sum(ReadingSession.duration_seconds).label("total_duration"),
+            func.count(ReadingSession.id).label("session_count"),
+            func.count(func.distinct(ReadingSession.book_id)).label("book_count"),
+            func.max(ReadingSession.start_time).label("last_read"),
+        )
+        .join(Book, Book.id == ReadingSession.book_id)
+        .outerjoin(Author, Author.id == Book.author_id)
+        .where(ReadingSession.user_id == current_user.id)
+        .group_by(Book.author_id, Author.name)
+        .order_by(func.sum(ReadingSession.duration_seconds).desc())
+        .limit(limit)
+    )
+
+    author_stats = []
+    for row in result:
+        author_stats.append({
+            "author_id": row.author_id,
+            "author_name": row.author_name or "未知作者",
+            "total_duration_seconds": row.total_duration or 0,
+            "total_duration_formatted": _format_duration(row.total_duration or 0),
+            "session_count": row.session_count or 0,
+            "book_count": row.book_count or 0,
+            "last_read": row.last_read.isoformat() if row.last_read else None,
+        })
+
+    return {
+        "limit": limit,
+        "author_stats": author_stats
+    }
+
+
+@router.get("/stats/reading/libraries")
+async def get_library_reading_stats(
+    limit: int = Query(20, ge=1, le=100, description="返回数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取书库阅读时长排行"""
+    settings = load_settings()
+    if not settings.get("rankings_enabled", True):
+        raise HTTPException(status_code=403, detail="排行榜功能已关闭")
+
+    result = await db.execute(
+        select(
+            Book.library_id.label("library_id"),
+            Library.name.label("library_name"),
+            func.sum(ReadingSession.duration_seconds).label("total_duration"),
+            func.count(ReadingSession.id).label("session_count"),
+            func.count(func.distinct(ReadingSession.book_id)).label("book_count"),
+            func.max(ReadingSession.start_time).label("last_read"),
+        )
+        .join(Book, Book.id == ReadingSession.book_id)
+        .join(Library, Library.id == Book.library_id)
+        .where(ReadingSession.user_id == current_user.id)
+        .group_by(Book.library_id, Library.name)
+        .order_by(func.sum(ReadingSession.duration_seconds).desc())
+        .limit(limit)
+    )
+
+    library_stats = []
+    for row in result:
+        library_stats.append({
+            "library_id": row.library_id,
+            "library_name": row.library_name or "未命名书库",
+            "total_duration_seconds": row.total_duration or 0,
+            "total_duration_formatted": _format_duration(row.total_duration or 0),
+            "session_count": row.session_count or 0,
+            "book_count": row.book_count or 0,
+            "last_read": row.last_read.isoformat() if row.last_read else None,
+        })
+
+    return {
+        "limit": limit,
+        "library_stats": library_stats
+    }
+
+
+@router.get("/stats/reading/formats")
+async def get_format_reading_stats(
+    limit: int = Query(20, ge=1, le=100, description="返回数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取格式阅读时长排行（以主版本格式为准）"""
+    settings = load_settings()
+    if not settings.get("rankings_enabled", True):
+        raise HTTPException(status_code=403, detail="排行榜功能已关闭")
+
+    result = await db.execute(
+        select(
+            BookVersion.file_format.label("file_format"),
+            func.sum(ReadingSession.duration_seconds).label("total_duration"),
+            func.count(ReadingSession.id).label("session_count"),
+            func.count(func.distinct(ReadingSession.book_id)).label("book_count"),
+            func.max(ReadingSession.start_time).label("last_read"),
+        )
+        .join(Book, Book.id == ReadingSession.book_id)
+        .outerjoin(
+            BookVersion,
+            and_(
+                BookVersion.book_id == Book.id,
+                BookVersion.is_primary == True
+            )
+        )
+        .where(ReadingSession.user_id == current_user.id)
+        .group_by(BookVersion.file_format)
+        .order_by(func.sum(ReadingSession.duration_seconds).desc())
+        .limit(limit)
+    )
+
+    format_stats = []
+    for row in result:
+        format_stats.append({
+            "file_format": row.file_format or "未知格式",
+            "total_duration_seconds": row.total_duration or 0,
+            "total_duration_formatted": _format_duration(row.total_duration or 0),
+            "session_count": row.session_count or 0,
+            "book_count": row.book_count or 0,
+            "last_read": row.last_read.isoformat() if row.last_read else None,
+        })
+
+    return {
+        "limit": limit,
+        "format_stats": format_stats
+    }
+
+
+@router.get("/stats/reading/tags")
+async def get_tag_reading_stats(
+    limit: int = Query(20, ge=1, le=100, description="返回数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取标签阅读时长排行"""
+    settings = load_settings()
+    if not settings.get("rankings_enabled", True):
+        raise HTTPException(status_code=403, detail="排行榜功能已关闭")
+
+    result = await db.execute(
+        select(
+            Tag.id.label("tag_id"),
+            Tag.name.label("tag_name"),
+            Tag.type.label("tag_type"),
+            func.sum(ReadingSession.duration_seconds).label("total_duration"),
+            func.count(ReadingSession.id).label("session_count"),
+            func.count(func.distinct(ReadingSession.book_id)).label("book_count"),
+            func.max(ReadingSession.start_time).label("last_read"),
+        )
+        .join(Book, Book.id == ReadingSession.book_id)
+        .join(BookTag, BookTag.book_id == Book.id)
+        .join(Tag, Tag.id == BookTag.tag_id)
+        .where(ReadingSession.user_id == current_user.id)
+        .group_by(Tag.id, Tag.name, Tag.type)
+        .order_by(func.sum(ReadingSession.duration_seconds).desc())
+        .limit(limit)
+    )
+
+    tag_stats = []
+    for row in result:
+        tag_stats.append({
+            "tag_id": row.tag_id,
+            "tag_name": row.tag_name or "未命名标签",
+            "tag_type": row.tag_type or "custom",
+            "total_duration_seconds": row.total_duration or 0,
+            "total_duration_formatted": _format_duration(row.total_duration or 0),
+            "session_count": row.session_count or 0,
+            "book_count": row.book_count or 0,
+            "last_read": row.last_read.isoformat() if row.last_read else None,
+        })
+
+    return {
+        "limit": limit,
+        "tag_stats": tag_stats
     }
 
 
