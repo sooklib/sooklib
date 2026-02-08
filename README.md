@@ -34,11 +34,14 @@ Sooklib 是一个以书库为核心、对标 Emby 的书城/书库项目，强�
 后端（API / 服务端）：
 
 - FastAPI（Web 框架）
+- Uvicorn（ASGI Server）
 - SQLAlchemy 2.x + Alembic（ORM 与迁移）
 - SQLite / aiosqlite（默认数据库驱动）
 - APScheduler（定时任务）
 - python-telegram-bot（Telegram 机器人）
-- chardet / ebooklib 等（文本与电子书处理）
+- Loguru（日志）
+- Pillow（封面处理）
+- chardet / ebooklib / mobi / bs4（文本与电子书处理）
 
 前端（WebUI）：
 
@@ -48,6 +51,10 @@ Sooklib 是一个以书库为核心、对标 Emby 的书城/书库项目，强�
 - Zustand（状态管理）
 - React Router（路由）
 - Axios（HTTP 客户端）
+- react-i18next（国际化）
+- epubjs / react-pdf（阅读器）
+- react-window（目录虚拟滚动）
+- vite-plugin-pwa（PWA 支持）
 
 ## 镜像与版本
 
