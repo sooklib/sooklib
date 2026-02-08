@@ -1,7 +1,7 @@
 import { useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Box, Tabs, Tab, Typography, Container, FormControl, InputLabel, Select, MenuItem, useMediaQuery, useTheme } from '@mui/material'
-import { People, LibraryBooks, Backup, Image, TextFields, LocalOffer, Psychology, Code, Settings, ReceiptLong } from '@mui/icons-material'
+import { People, LibraryBooks, Backup, Image, TextFields, LocalOffer, Psychology, Code, Settings, ReceiptLong, ListAlt } from '@mui/icons-material'
 import SettingsTab from '../components/admin/SettingsTab'
 import UsersTab from '../components/admin/UsersTab'
 import LibrariesTab from '../components/admin/LibrariesTab'
@@ -12,6 +12,7 @@ import TagsTab from '../components/admin/TagsTab'
 import AITab from '../components/admin/AITab'
 import PatternsTab from '../components/admin/PatternsTab'
 import LogsTab from '../components/admin/LogsTab'
+import ScanTasksTab from '../components/admin/ScanTasksTab'
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -29,7 +30,7 @@ function TabPanel(props: TabPanelProps) {
 }
 
 // Tab 名称映射
-const TAB_NAMES = ['settings', 'users', 'libraries', 'tags', 'patterns', 'ai', 'backup', 'covers', 'fonts', 'logs']
+const TAB_NAMES = ['settings', 'users', 'libraries', 'scan-tasks', 'tags', 'patterns', 'ai', 'backup', 'covers', 'fonts', 'logs']
 
 export default function AdminPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -77,13 +78,14 @@ export default function AdminPage() {
               <MenuItem value={0}>系统设置</MenuItem>
               <MenuItem value={1}>用户管理</MenuItem>
               <MenuItem value={2}>书库管理</MenuItem>
-              <MenuItem value={3}>标签管理</MenuItem>
-              <MenuItem value={4}>文件名规则</MenuItem>
-              <MenuItem value={5}>AI配置</MenuItem>
-              <MenuItem value={6}>备份管理</MenuItem>
-              <MenuItem value={7}>封面管理</MenuItem>
-              <MenuItem value={8}>字体管理</MenuItem>
-              <MenuItem value={9}>系统日志</MenuItem>
+              <MenuItem value={3}>任务队列</MenuItem>
+              <MenuItem value={4}>标签管理</MenuItem>
+              <MenuItem value={5}>文件名规则</MenuItem>
+              <MenuItem value={6}>AI配置</MenuItem>
+              <MenuItem value={7}>备份管理</MenuItem>
+              <MenuItem value={8}>封面管理</MenuItem>
+              <MenuItem value={9}>字体管理</MenuItem>
+              <MenuItem value={10}>系统日志</MenuItem>
             </Select>
           </FormControl>
         ) : (
@@ -97,6 +99,7 @@ export default function AdminPage() {
             <Tab icon={<Settings />} label="系统设置" iconPosition="start" />
             <Tab icon={<People />} label="用户管理" iconPosition="start" />
             <Tab icon={<LibraryBooks />} label="书库管理" iconPosition="start" />
+            <Tab icon={<ListAlt />} label="任务队列" iconPosition="start" />
             <Tab icon={<LocalOffer />} label="标签管理" iconPosition="start" />
             <Tab icon={<Code />} label="文件名规则" iconPosition="start" />
             <Tab icon={<Psychology />} label="AI配置" iconPosition="start" />
@@ -118,24 +121,27 @@ export default function AdminPage() {
         <LibrariesTab />
       </TabPanel>
       <TabPanel value={tabValue} index={3}>
-        <TagsTab />
+        <ScanTasksTab />
       </TabPanel>
       <TabPanel value={tabValue} index={4}>
-        <PatternsTab />
+        <TagsTab />
       </TabPanel>
       <TabPanel value={tabValue} index={5}>
-        <AITab />
+        <PatternsTab />
       </TabPanel>
       <TabPanel value={tabValue} index={6}>
-        <BackupTab />
+        <AITab />
       </TabPanel>
       <TabPanel value={tabValue} index={7}>
-        <CoversTab />
+        <BackupTab />
       </TabPanel>
       <TabPanel value={tabValue} index={8}>
-        <FontsTab />
+        <CoversTab />
       </TabPanel>
       <TabPanel value={tabValue} index={9}>
+        <FontsTab />
+      </TabPanel>
+      <TabPanel value={tabValue} index={10}>
         <LogsTab />
       </TabPanel>
     </Container>
