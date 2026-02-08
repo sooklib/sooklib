@@ -7,6 +7,7 @@ import asyncio
 import uuid
 from dataclasses import asdict
 from typing import List, Optional, Dict
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -532,6 +533,21 @@ class FeaturesConfigUpdate(BaseModel):
     daily_limit: Optional[int] = None
 
 
+class AIPatternCreate(BaseModel):
+    """AI 生成规则写入请求"""
+    name: str
+    regex_pattern: str
+    title_group: int = 1
+    author_group: int = 2
+    extra_group: int = 0
+    priority: int = 0
+    library_id: Optional[int] = None
+    description: Optional[str] = None
+    is_active: bool = True
+    example_filename: Optional[str] = None
+    example_result: Optional[str] = None
+
+
 @router.get("/config")
 async def get_admin_ai_config(
     current_user: User = Depends(get_current_admin)
@@ -546,6 +562,72 @@ async def get_ai_models(
 ):
     """获取预设模型列表"""
     return PRESET_MODELS
+
+
+@router.post("/patterns")
+async def create_ai_pattern(
+    pattern_data: AIPatternCreate,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """写入 AI 生成的文件名解析规则"""
+    # 校验正则
+    try:
+        re.compile(pattern_data.regex_pattern)
+    except re.error as e:
+        raise HTTPException(status_code=400, detail=f"正则无效: {e}")
+
+    # 校验书库（如指定）
+    if pattern_data.library_id:
+        lib_result = await db.execute(
+            select(Library).where(Library.id == pattern_data.library_id)
+        )
+        if not lib_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="书库不存在")
+
+    # 若同库同正则已存在，直接返回
+    existing = await db.execute(
+        select(FilenamePattern).where(
+            FilenamePattern.regex_pattern == pattern_data.regex_pattern,
+            FilenamePattern.library_id == pattern_data.library_id,
+        )
+    )
+    existing_pattern = existing.scalar_one_or_none()
+    if existing_pattern:
+        return {"success": True, "pattern_id": existing_pattern.id, "duplicated": True}
+
+    # 处理重复名称（可读性）
+    base_name = pattern_data.name.strip() or "AI规则"
+    name = base_name
+    suffix = 2
+    while True:
+        dup = await db.execute(
+            select(FilenamePattern).where(FilenamePattern.name == name)
+        )
+        if not dup.scalar_one_or_none():
+            break
+        name = f"{base_name}-{suffix}"
+        suffix += 1
+
+    new_pattern = FilenamePattern(
+        name=name,
+        description=pattern_data.description,
+        regex_pattern=pattern_data.regex_pattern,
+        title_group=pattern_data.title_group,
+        author_group=pattern_data.author_group,
+        extra_group=pattern_data.extra_group,
+        priority=pattern_data.priority,
+        is_active=pattern_data.is_active,
+        library_id=pattern_data.library_id,
+        created_by="ai",
+        example_filename=pattern_data.example_filename,
+        example_result=pattern_data.example_result,
+    )
+    db.add(new_pattern)
+    await db.commit()
+    await db.refresh(new_pattern)
+
+    return {"success": True, "pattern_id": new_pattern.id, "duplicated": False}
 
 
 @router.put("/provider")
