@@ -38,8 +38,10 @@ def escape_xml(text: str) -> str:
             .replace("'", "&apos;"))
 
 
-def format_datetime(dt: datetime) -> str:
+def format_datetime(dt: Optional[datetime]) -> str:
     """格式化日期时间为 ISO 8601 格式"""
+    if not dt:
+        dt = datetime.utcnow()
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -132,8 +134,9 @@ def build_opds_entry(book: Book, base_url: str, author_name: Optional[str] = Non
     updated = format_datetime(book.added_at)
     
     primary_version = get_primary_version(book)
-    file_format = (primary_version.file_format if primary_version else "unknown").lower()
-    file_size = primary_version.file_size if primary_version else 0
+    file_format = (primary_version.file_format if primary_version and primary_version.file_format else "unknown")
+    file_format = str(file_format).lower()
+    file_size = primary_version.file_size if primary_version and primary_version.file_size else 0
 
     # 确定 MIME 类型
     mime_types = {
