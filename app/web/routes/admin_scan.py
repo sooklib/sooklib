@@ -357,6 +357,51 @@ async def start_library_scan(
         raise HTTPException(status_code=500, detail=f"启动扫描失败: {str(e)}")
 
 
+@router.get("/admin/scan-tasks/stats")
+async def get_scan_tasks_stats(
+    current_user: User = Depends(admin_required),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取扫描任务统计信息
+    """
+    from sqlalchemy import func
+    
+    # 总任务数
+    total_result = await db.execute(select(func.count(ScanTask.id)))
+    total_tasks = total_result.scalar()
+    
+    # 按状态统计
+    stats_by_status = {}
+    for status in ['pending', 'running', 'completed', 'failed', 'cancelled']:
+        result = await db.execute(
+            select(func.count(ScanTask.id)).where(ScanTask.status == status)
+        )
+        stats_by_status[status] = result.scalar()
+    
+    # 总添加书籍数
+    added_result = await db.execute(select(func.sum(ScanTask.added_books)))
+    total_added = added_result.scalar() or 0
+    
+    # 总跳过书籍数
+    skipped_result = await db.execute(select(func.sum(ScanTask.skipped_books)))
+    total_skipped = skipped_result.scalar() or 0
+    
+    # 总错误数
+    error_result = await db.execute(select(func.sum(ScanTask.error_count)))
+    total_errors = error_result.scalar() or 0
+    
+    return {
+        "total_tasks": total_tasks,
+        "by_status": stats_by_status,
+        "totals": {
+            "added_books": total_added,
+            "skipped_books": total_skipped,
+            "errors": total_errors
+        }
+    }
+
+
 @router.get("/admin/scan-tasks/{task_id}")
 async def get_scan_task_status(
     task_id: int,
@@ -529,46 +574,3 @@ async def list_all_scan_tasks(
     return response
 
 
-@router.get("/admin/scan-tasks/stats")
-async def get_scan_tasks_stats(
-    current_user: User = Depends(admin_required),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    获取扫描任务统计信息
-    """
-    from sqlalchemy import func
-    
-    # 总任务数
-    total_result = await db.execute(select(func.count(ScanTask.id)))
-    total_tasks = total_result.scalar()
-    
-    # 按状态统计
-    stats_by_status = {}
-    for status in ['pending', 'running', 'completed', 'failed', 'cancelled']:
-        result = await db.execute(
-            select(func.count(ScanTask.id)).where(ScanTask.status == status)
-        )
-        stats_by_status[status] = result.scalar()
-    
-    # 总添加书籍数
-    added_result = await db.execute(select(func.sum(ScanTask.added_books)))
-    total_added = added_result.scalar() or 0
-    
-    # 总跳过书籍数
-    skipped_result = await db.execute(select(func.sum(ScanTask.skipped_books)))
-    total_skipped = skipped_result.scalar() or 0
-    
-    # 总错误数
-    error_result = await db.execute(select(func.sum(ScanTask.error_count)))
-    total_errors = error_result.scalar() or 0
-    
-    return {
-        "total_tasks": total_tasks,
-        "by_status": stats_by_status,
-        "totals": {
-            "added_books": total_added,
-            "skipped_books": total_skipped,
-            "errors": total_errors
-        }
-    }

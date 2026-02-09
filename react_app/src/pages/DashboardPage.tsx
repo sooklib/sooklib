@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Box, Typography, Grid, Card, CardContent, Alert, Button, IconButton, Stack, LinearProgress, useMediaQuery } from '@mui/material'
+import { Box, Typography, Grid, Card, CardContent, Alert, Button, IconButton, Stack, LinearProgress, useMediaQuery, useTheme } from '@mui/material'
 import { MenuBook, LibraryBooks, Favorite, ChevronLeft, ChevronRight, Person, AutoAwesome, Storage } from '@mui/icons-material'
 import api from '../services/api'
 import { DashboardResponse, LibrarySummary, ContinueReadingItem, LibraryLatest } from '../types'
@@ -22,7 +22,8 @@ export default function DashboardPage() {
   const { coverSize } = useSettingsStore()
   const primaryColor = usePrimaryColor()
   const morandiPalette = useMemo(() => generateMorandiPalette(primaryColor), [primaryColor])
-  const showScrollArrows = useMediaQuery('(hover: hover) and (pointer: fine)')
+  const theme = useTheme()
+  const showScrollArrows = useMediaQuery(theme.breakpoints.up('md'))
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -375,7 +376,7 @@ export default function DashboardPage() {
                     <BookCard loading />
                   </Box>
                 ))
-              : libraryLatest.books.map((book) => (
+              : libraryLatest.books.slice(0, 20).map((book) => (
                   <Box key={book.id} sx={{ width: posterWidth, flexShrink: 0 }}>
                     <BookCard book={book} />
                   </Box>

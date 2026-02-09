@@ -3,15 +3,16 @@ API路由
 提供REST API接口
 """
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta, date
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, and_, cast, Date
+from sqlalchemy import func, select, and_, or_, exists, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.scanner import Scanner
 from app.core.conversion.ebook_convert import (
@@ -427,22 +428,17 @@ async def list_books(
             "total_pages": 0
         }
     
-    # 构建查询，只包含可访问书库的书籍，并加载主版本
-    query = select(Book).options(
-        joinedload(Book.author),
-        joinedload(Book.book_tags),
-        joinedload(Book.versions)
-    )
-    query = query.where(Book.library_id.in_(accessible_library_ids))
+    # 构建基础过滤条件，只包含可访问书库的书籍
+    filters = [Book.library_id.in_(accessible_library_ids)]
     
     if author_id:
-        query = query.where(Book.author_id == author_id)
+        filters.append(Book.author_id == author_id)
 
     if author_ids:
         try:
             author_id_list = [int(a.strip()) for a in author_ids.split(',') if a.strip()]
             if author_id_list:
-                query = query.where(Book.author_id.in_(author_id_list))
+                filters.append(Book.author_id.in_(author_id_list))
         except ValueError as e:
             log.error(f"作者筛选解析错误: {e}")
 
@@ -456,24 +452,24 @@ async def list_books(
                 "limit": limit,
                 "total_pages": 0
             }
-        query = query.where(Book.library_id == library_id)
+        filters.append(Book.library_id == library_id)
 
     if age_ratings:
         rating_list = [r.strip().lower() for r in age_ratings.split(',') if r.strip()]
         if rating_list:
-            query = query.where(func.lower(Book.age_rating).in_(rating_list))
+            filters.append(func.lower(Book.age_rating).in_(rating_list))
 
     if added_from:
-        query = query.where(cast(Book.added_at, Date) >= added_from)
+        filters.append(cast(Book.added_at, Date) >= added_from)
 
     if added_to:
-        query = query.where(cast(Book.added_at, Date) <= added_to)
+        filters.append(cast(Book.added_at, Date) <= added_to)
     
     # 按格式筛选
     if formats:
         from app.models import BookVersion
         from sqlalchemy import or_, func
-        format_list = [f.strip().lower() for f in formats.split(',') if f.strip()]
+        format_list = [f.strip().lower().lstrip('.') for f in formats.split(',') if f.strip()]
         if format_list:
             # 处理带点和不带点的格式（如 txt 和 .txt）
             # 数据库可能存储为 .txt 或 txt，需要兼容
@@ -488,7 +484,7 @@ async def list_books(
             subquery = select(BookVersion.book_id).where(
                 or_(*format_conditions)
             ).distinct()
-            query = query.where(Book.id.in_(subquery))
+            filters.append(Book.id.in_(subquery))
     
     # 按标签筛选（AND逻辑：必须同时包含所有选中标签）
     if tag_ids:
@@ -498,45 +494,62 @@ async def list_books(
             if tag_id_list:
                 # 先查询符合条件的书籍ID列表
                 if len(tag_id_list) == 1:
-                    # 单个标签：简单的IN查询
                     tag_subquery = select(BookTag.book_id).where(
                         BookTag.tag_id == tag_id_list[0]
-                    ).distinct()
-                    
-                    # 执行子查询
-                    tag_book_result = await db.execute(tag_subquery)
-                    tag_book_ids = [row[0] for row in tag_book_result.fetchall()]
+                    )
                 else:
                     # 多个标签：使用 group by + having count 确保必须包含所有标签
-                    # 使用 DISTINCT COUNT 确保正确计数
                     tag_subquery = select(BookTag.book_id).where(
                         BookTag.tag_id.in_(tag_id_list)
                     ).group_by(BookTag.book_id).having(
                         func.count(func.distinct(BookTag.tag_id)) >= len(tag_id_list)
                     )
-                    
-                    # 执行子查询
-                    tag_book_result = await db.execute(tag_subquery)
-                    tag_book_ids = [row[0] for row in tag_book_result.fetchall()]
-                
-                if tag_book_ids:
-                    query = query.where(Book.id.in_(tag_book_ids))
-                else:
-                    # 没有匹配的书籍，直接返回空结果
-                    return {
-                        "books": [],
-                        "total": 0,
-                        "page": page,
-                        "limit": limit,
-                        "total_pages": 0
-                    }
+                filters.append(Book.id.in_(tag_subquery))
         except ValueError as e:
             log.error(f"标签筛选解析错误: {e}")
         except Exception as e:
             log.error(f"标签筛选查询错误: {e}")
-    
-    # 应用排序
-    # 对于需要 BookVersion 的排序（size, format），在内存中处理
+
+    # 用户内容分级与屏蔽标签过滤（仅非管理员）
+    if not current_user.is_admin:
+        rating_hierarchy = {
+            'general': 0,
+            'teen': 1,
+            'adult': 2
+        }
+        rating_order = ['general', 'teen', 'adult']
+        user_limit = rating_hierarchy.get(current_user.age_rating_limit, 2)
+        allowed_ratings = rating_order[:user_limit + 1]
+        known_ratings = rating_order
+        filters.append(
+            or_(
+                Book.age_rating.is_(None),
+                func.lower(Book.age_rating).in_(allowed_ratings),
+                ~func.lower(Book.age_rating).in_(known_ratings)
+            )
+        )
+
+        if current_user.blocked_tags:
+            try:
+                blocked_tag_ids = json.loads(current_user.blocked_tags)
+                if blocked_tag_ids:
+                    blocked_exists = exists(
+                        select(BookTag.id)
+                        .where(BookTag.book_id == Book.id)
+                        .where(BookTag.tag_id.in_(blocked_tag_ids))
+                    )
+                    filters.append(~blocked_exists)
+            except (json.JSONDecodeError, TypeError) as e:
+                log.warning(f"解析用户屏蔽标签失败: {e}")
+
+    # 构建查询，只加载当前页所需数据
+    query = select(Book).options(
+        selectinload(Book.author),
+        selectinload(Book.versions)
+    ).where(and_(*filters))
+
+    # 应用排序（DB 内排序优先）
+    # 对于需要 BookVersion 的排序（size, format），仍在内存中处理
     db_sort_applied = False
     if sort:
         sort_lower = sort.lower()
@@ -562,16 +575,38 @@ async def list_books(
     
     if not db_sort_applied:
         query = query.order_by(Book.added_at.desc())
-    
-    # 获取所有符合条件的书籍（使用unique()去重，因为有joinedload关联）
-    result = await db.execute(query)
-    all_books = result.unique().scalars().all()
-    
-    # 应用内容分级过滤
-    filtered_books = []
-    for book in all_books:
-        if await check_book_access(current_user, book.id, db):
-            filtered_books.append(book)
+
+    # 当排序/筛选需要内存处理时，退回全量加载
+    requires_memory_sort = sort and sort.lower() in ("size_desc", "size_asc", "format_asc", "format_desc")
+    requires_memory_size_filter = min_size is not None or max_size is not None
+
+    if not requires_memory_sort and not requires_memory_size_filter:
+        # 只计算当前页数据，提高大库性能
+        count_query = select(func.count()).select_from(
+            select(Book.id).where(and_(*filters)).subquery()
+        )
+        count_result = await db.execute(count_query)
+        total_count = int(count_result.scalar() or 0)
+
+        if total_count == 0:
+            return {
+                "books": [],
+                "total": 0,
+                "page": page,
+                "limit": limit,
+                "total_pages": 0
+            }
+
+        total_pages = (total_count + limit - 1) // limit
+        start_idx = (page - 1) * limit
+
+        result = await db.execute(query.offset(start_idx).limit(limit))
+        paginated_books = result.scalars().all()
+        filtered_books = paginated_books
+    else:
+        # 需要内存排序/筛选时，加载全部匹配结果
+        result = await db.execute(query)
+        filtered_books = result.scalars().all()
     
     # 内存中排序（对于需要 BookVersion 的排序）
     if sort:
@@ -612,12 +647,15 @@ async def list_books(
 
         filtered_books = [book for book in filtered_books if in_size_range(book)]
 
-    # 计算总数和分页
-    total_count = len(filtered_books)
-    total_pages = (total_count + limit - 1) // limit if total_count > 0 else 0
-    start_idx = (page - 1) * limit
-    end_idx = start_idx + limit
-    paginated_books = filtered_books[start_idx:end_idx]
+    # 计算总数和分页（内存路径）
+    if requires_memory_sort or requires_memory_size_filter:
+        total_count = len(filtered_books)
+        total_pages = (total_count + limit - 1) // limit if total_count > 0 else 0
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paginated_books = filtered_books[start_idx:end_idx]
+    else:
+        paginated_books = filtered_books
     
     # 手动构建响应
     books_data = []

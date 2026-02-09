@@ -31,38 +31,47 @@ const MainLayout = () => {
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Top AppBar */}
       <AppBar position="fixed" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider', left: 0, right: 0 }}>
-        <Toolbar disableGutters sx={{ pl: { xs: 1.5, sm: 2 }, pr: { xs: 0.75, sm: 1 }, gap: 1, justifyContent: 'space-between' }}>
-          <Typography
-            variant="h6"
-            noWrap
+        <Toolbar disableGutters sx={{ px: { xs: 1.5, sm: 2 } }}>
+          <Box
             sx={{
-              cursor: 'pointer',
-              color: 'text.primary',  // 确保文字颜色跟随主题
-              flex: 1,
-              minWidth: 0,
-              maxWidth: isMobile ? '60vw' : 'none',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              width: '100%',
             }}
-            onClick={() => navigate('/home')}
           >
-            📚 {serverName}
-          </Typography>
+            <Typography
+              variant="h6"
+              noWrap
+              sx={{
+                cursor: 'pointer',
+                color: 'text.primary',
+                flex: 1,
+                minWidth: 0,
+                maxWidth: isMobile ? '60vw' : 'none',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              onClick={() => navigate('/home')}
+            >
+              📚 {serverName}
+            </Typography>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-            <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary', p: 0.75 }}>
-              <Search />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto' }}>
+              <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary', p: 0.75 }}>
+                <Search />
+              </IconButton>
 
-            <IconButton onClick={() => navigate('/profile')} sx={{ p: 0.5 }}>
-              <Avatar
-                src={user?.avatarUrl || undefined}
-                sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
-              >
-                {(user?.displayName || user?.username || 'U').charAt(0).toUpperCase()}
-              </Avatar>
-            </IconButton>
+              <IconButton onClick={() => navigate('/profile')} sx={{ p: 0.5 }}>
+                <Avatar
+                  src={user?.avatarUrl || undefined}
+                  sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
+                >
+                  {(user?.displayName || user?.username || 'U').charAt(0).toUpperCase()}
+                </Avatar>
+              </IconButton>
+            </Box>
           </Box>
         </Toolbar>
       </AppBar>
