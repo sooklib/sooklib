@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Box, Tabs, Tab, Typography, Container, FormControl, InputLabel, Select, MenuItem, useMediaQuery, useTheme } from '@mui/material'
+import { Box, Tabs, Tab, Typography, FormControl, InputLabel, Select, MenuItem, useMediaQuery, useTheme } from '@mui/material'
 import { People, LibraryBooks, Backup, Image, TextFields, LocalOffer, Psychology, Code, Settings, ReceiptLong, ListAlt } from '@mui/icons-material'
 import SettingsTab from '../components/admin/SettingsTab'
 import UsersTab from '../components/admin/UsersTab'
@@ -13,6 +13,7 @@ import AITab from '../components/admin/AITab'
 import PatternsTab from '../components/admin/PatternsTab'
 import LogsTab from '../components/admin/LogsTab'
 import ScanTasksTab from '../components/admin/ScanTasksTab'
+import PageContainer from '../components/PageContainer'
 
 interface TabPanelProps {
   children?: React.ReactNode
@@ -60,7 +61,7 @@ export default function AdminPage() {
   }, [setSearchParams])
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 2, sm: 3 }, px: { xs: 1.5, sm: 2 } }}>
+    <PageContainer sx={{ maxWidth: 1200, mx: 'auto' }}>
       <Typography variant={headingVariant} fontWeight="bold" sx={{ mb: { xs: 2, sm: 3 } }}>
         后台管理
       </Typography>
@@ -144,6 +145,6 @@ export default function AdminPage() {
       <TabPanel value={tabValue} index={10}>
         <LogsTab />
       </TabPanel>
-    </Container>
+    </PageContainer>
   )
 }

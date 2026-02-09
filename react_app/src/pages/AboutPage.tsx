@@ -1,6 +1,7 @@
 import { Box, Typography, Card, CardContent, Link, Stack, Chip } from '@mui/material'
 import { useEffect, useState } from 'react'
 import api from '../services/api'
+import PageContainer from '../components/PageContainer'
 
 export default function AboutPage() {
   const [version, setVersion] = useState<string>('unknown')
@@ -18,7 +19,7 @@ export default function AboutPage() {
   }, [])
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
         关于 Sooklib
       </Typography>
@@ -63,6 +64,6 @@ export default function AboutPage() {
           </Stack>
         </CardContent>
       </Card>
-    </Box>
+    </PageContainer>
   )
 }

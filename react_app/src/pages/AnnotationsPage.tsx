@@ -3,6 +3,7 @@ import { ExpandMore, Edit, Delete, FileDownload, MenuBook } from '@mui/icons-mat
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
+import PageContainer from '../components/PageContainer'
 
 type AnnotationItem = {
   id: number
@@ -157,7 +158,7 @@ export default function AnnotationsPage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 2 }}>
         批注管理
       </Typography>
@@ -360,6 +361,6 @@ export default function AnnotationsPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+    </PageContainer>
   )
 }

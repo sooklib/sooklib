@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
+import PageContainer from '../components/PageContainer'
 
 export default function ProfilePage() {
   const { user, logout } = useAuthStore()
@@ -85,7 +86,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
         {t('profile.title')}
       </Typography>
@@ -217,6 +218,6 @@ export default function ProfilePage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+    </PageContainer>
   )
 }

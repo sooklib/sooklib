@@ -7,6 +7,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
 import { extractDominantColor } from '../utils/colorUtils'
+import PageContainer from '../components/PageContainer'
 
 export default function UserSettingsPage() {
   const { i18n, t } = useTranslation()
@@ -213,7 +214,7 @@ export default function UserSettingsPage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       <Typography variant="h4" fontWeight="bold" sx={{ mb: 3 }}>
         {t('settings.title')}
       </Typography>
@@ -576,6 +577,6 @@ export default function UserSettingsPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+    </PageContainer>
   )
 }

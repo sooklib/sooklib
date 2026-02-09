@@ -10,6 +10,7 @@ import api from '../services/api'
 import { BookSummary, LibrarySummary } from '../types'
 import BookCard from '../components/BookCard'
 import Pagination from '../components/Pagination'
+import PageContainer from '../components/PageContainer'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
@@ -702,7 +703,7 @@ export default function LibraryPage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       {/* 标题和工具栏 */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2, mb: 3 }}>
         <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
@@ -1254,6 +1255,6 @@ export default function LibraryPage() {
           {renderPagination()}
         </>
       )}
-    </Box>
+    </PageContainer>
   )
 }

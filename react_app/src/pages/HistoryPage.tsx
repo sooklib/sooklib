@@ -14,6 +14,7 @@ import { History as HistoryIcon, CheckCircle } from '@mui/icons-material';
 import api from '../services/api';
 import BookCard from '../components/BookCard';
 import { formatDateShort, formatRelativeTime } from '../utils/dateUtils';
+import PageContainer from '../components/PageContainer';
 
 interface HistoryItem {
   book_id: number;
@@ -49,14 +50,14 @@ export default function HistoryPage() {
 
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+      <PageContainer sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />
-      </Container>
+      </PageContainer>
     );
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <PageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* 标题 */}
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
         <HistoryIcon color="primary" sx={{ fontSize: 32 }} />
@@ -143,6 +144,6 @@ export default function HistoryPage() {
           ))}
         </Grid>
       )}
-    </Container>
+    </PageContainer>
   );
 }

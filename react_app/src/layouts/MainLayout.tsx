@@ -31,24 +31,26 @@ const MainLayout = () => {
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Top AppBar */}
       <AppBar position="fixed" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider', left: 0, right: 0 }}>
-        <Toolbar disableGutters sx={{ px: { xs: 1.5, sm: 2 }, gap: 1 }}>
+        <Toolbar disableGutters sx={{ px: { xs: 1.5, sm: 2 }, gap: 1, justifyContent: 'space-between' }}>
           <Typography
             variant="h6"
             noWrap
             sx={{
-              flexGrow: 1,
               cursor: 'pointer',
               color: 'text.primary',  // 确保文字颜色跟随主题
+              flex: 1,
+              minWidth: 0,
               maxWidth: isMobile ? '60vw' : 'none',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
             onClick={() => navigate('/home')}
           >
             📚 {serverName}
           </Typography>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary' }}>
               <Search />
             </IconButton>
@@ -127,7 +129,7 @@ const MainLayout = () => {
             bgcolor: 'background.paper',
             borderTop: 1,
             borderColor: 'divider',
-            zIndex: theme.zIndex.appBar + 1,
+            zIndex: theme.zIndex.drawer + 2,
           }}
         >
           <BottomNavigationAction label={t('nav.home')} icon={<Home />} />

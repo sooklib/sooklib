@@ -6,6 +6,7 @@ import api from '../services/api'
 import { DashboardResponse, LibrarySummary, ContinueReadingItem, LibraryLatest } from '../types'
 import BookCard from '../components/BookCard'
 import ContinueReadingCard from '../components/ContinueReadingCard'
+import PageContainer from '../components/PageContainer'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -106,7 +107,7 @@ export default function DashboardPage() {
   const posterScrollStep = posterWidth * 4
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, minHeight: '100vh', bgcolor: 'background.default' }}>
+    <PageContainer>
       {/* 欢迎语 */}
         <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
           👋 你好，{user?.username || '用户'}
@@ -395,7 +396,7 @@ export default function DashboardPage() {
           </Typography>
         </Box>
       )}
-    </Box>
+    </PageContainer>
   )
 }
 
@@ -463,8 +464,6 @@ function ScrollableRow({
           gap: 2,
           overflowX: 'auto',
           pb: 2,
-          mx: -2,
-          px: 2,
           scrollBehavior: 'smooth',
           '::-webkit-scrollbar': { display: 'none' },
           scrollbarWidth: 'none',

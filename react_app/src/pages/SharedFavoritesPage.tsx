@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import { Favorite as FavoriteIcon, Login as LoginIcon } from '@mui/icons-material'
 import BookCard from '../components/BookCard'
+import PageContainer from '../components/PageContainer'
 
 type SharedFavoriteItem = {
   id: number
@@ -67,14 +68,14 @@ export default function SharedFavoritesPage() {
 
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+      <PageContainer sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />
-      </Container>
+      </PageContainer>
     )
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <PageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <FavoriteIcon color="error" sx={{ fontSize: 32 }} />
@@ -132,6 +133,6 @@ export default function SharedFavoritesPage() {
           </Typography>
         </Paper>
       )}
-    </Container>
+    </PageContainer>
   )
 }

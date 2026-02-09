@@ -9,6 +9,7 @@ import { Search, Person, Clear } from '@mui/icons-material'
 import api from '../services/api'
 import { Author } from '../types'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import PageContainer from '../components/PageContainer'
 
 interface AuthorWithBooks extends Author {
   book_count: number
@@ -129,7 +130,7 @@ export default function AuthorsPage() {
   }
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+    <PageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
         作者列表
       </Typography>
@@ -281,6 +282,6 @@ export default function AuthorsPage() {
           )}
         </>
       )}
-    </Box>
+    </PageContainer>
   )
 }

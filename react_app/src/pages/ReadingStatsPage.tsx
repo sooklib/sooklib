@@ -33,6 +33,7 @@ import {
 } from '@mui/icons-material'
 import api from '../services/api'
 import { useSettingsStore } from '../stores/settingsStore'
+import PageContainer from '../components/PageContainer'
 import type {
   ReadingStatsOverview,
   DailyReadingStatsResponse,
@@ -186,23 +187,23 @@ export default function ReadingStatsPage() {
 
   if (loading) {
     return (
-      <Box sx={{ p: 3 }}>
+      <PageContainer>
         <LinearProgress />
         <Typography sx={{ mt: 2, textAlign: 'center' }}>加载阅读统计中...</Typography>
-      </Box>
+      </PageContainer>
     )
   }
 
   if (error) {
     return (
-      <Box sx={{ p: 3 }}>
+      <PageContainer>
         <Alert severity="error">{error}</Alert>
-      </Box>
+      </PageContainer>
     )
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <TrendingIcon />
         阅读统计
@@ -786,6 +787,6 @@ export default function ReadingStatsPage() {
           </Grid>
         )}
       </Grid>
-    </Box>
+    </PageContainer>
   )
 }

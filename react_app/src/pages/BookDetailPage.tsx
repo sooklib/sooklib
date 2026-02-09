@@ -17,6 +17,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { formatDateShort, formatDateTime, formatRelativeTime } from '../utils/dateUtils'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import PageContainer from '../components/PageContainer'
 
 interface TagInfo {
   id: number
@@ -647,20 +648,20 @@ export default function BookDetailPage() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <PageContainer sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
         <CircularProgress />
-      </Box>
+      </PageContainer>
     )
   }
 
   if (error || !book) {
     return (
-      <Box sx={{ p: 3 }}>
+      <PageContainer>
         <Alert severity="error">{error || '书籍不存在'}</Alert>
         <Button startIcon={<ArrowBack />} onClick={() => navigate(-1)} sx={{ mt: 2 }}>
           返回
         </Button>
-      </Box>
+      </PageContainer>
     )
   }
 
@@ -673,7 +674,7 @@ export default function BookDetailPage() {
   const hasMoreReviews = reviewTotal > reviews.length
 
   return (
-    <Box sx={{ p: 3 }}>
+    <PageContainer>
       {/* 返回按钮 */}
       <IconButton onClick={() => navigate(-1)} sx={{ mb: 2 }}>
         <ArrowBack />
@@ -1602,6 +1603,6 @@ export default function BookDetailPage() {
           <Button onClick={() => setGroupDialogOpen(false)}>关闭</Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageContainer>
   )
 }

@@ -13,6 +13,7 @@ import { BookSummary, Author, LibrarySummary } from '../types'
 import BookCard from '../components/BookCard'
 import Pagination from '../components/Pagination'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import PageContainer from '../components/PageContainer'
 
 interface SearchResponse {
   books: Array<{
@@ -341,7 +342,7 @@ export default function SearchPage() {
   const hasActiveFilters = selectedAuthor || selectedLibrary || selectedFormats.length > 0
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+    <PageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       <Typography variant="h5" fontWeight="bold" sx={{ mb: 3 }}>
         搜索
       </Typography>
@@ -727,6 +728,6 @@ export default function SearchPage() {
           </Typography>
         </Box>
       ) : null}
-    </Box>
+    </PageContainer>
   )
 }

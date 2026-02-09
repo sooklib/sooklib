@@ -18,6 +18,7 @@ import {
 import { Favorite as FavoriteIcon, Share as ShareIcon, ContentCopy as CopyIcon } from '@mui/icons-material';
 import api from '../services/api';
 import BookCard from '../components/BookCard';
+import PageContainer from '../components/PageContainer';
 
 interface FavoriteItem {
   id: number;
@@ -87,14 +88,14 @@ export default function FavoritesPage() {
 
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+      <PageContainer sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
         <CircularProgress />
-      </Container>
+      </PageContainer>
     );
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <PageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* 标题 */}
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -186,6 +187,6 @@ export default function FavoritesPage() {
         onClose={() => setSnackbar({ open: false, message: '' })}
         message={snackbar.message}
       />
-    </Container>
+    </PageContainer>
   );
 }
