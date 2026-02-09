@@ -75,7 +75,8 @@ async def get_shared_favorites(
         .where(Favorite.user_id == user.id)
         .order_by(Favorite.created_at.desc())
     )
-    favorites = result.all()
+    # 若 Book 上存在 joined eager load 的集合关系，需要 unique() 去重
+    favorites = result.unique().all()
 
     items = []
     for favorite, book in favorites:
@@ -85,7 +86,7 @@ async def get_shared_favorites(
             "title": book.title,
             "author_name": book.author.name if book.author else None,
             "file_format": book.file_format,
-            "added_at": favorite.created_at.isoformat(),
+            "added_at": favorite.created_at.isoformat() if favorite.created_at else None,
             "cover_url": f"/books/{book.id}/cover"
         })
 
