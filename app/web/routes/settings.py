@@ -356,6 +356,25 @@ def _is_newer_version(current: str, latest: str) -> bool:
     latest_suffix = latest_tuple[3]
     if current_suffix == latest_suffix:
         return False
+    if not latest_suffix:
+        return True
+    if not current_suffix:
+        return False
+    return latest_suffix > current_suffix
+
+
+def _beta_versions_equal(current: str, latest: str) -> bool:
+    if not current or not latest:
+        return False
+    if current == latest:
+        return True
+    current_value = current
+    latest_value = latest
+    if current_value.startswith("beta-"):
+        current_value = current_value[5:]
+    if latest_value.startswith("beta-"):
+        latest_value = latest_value[5:]
+    return current_value.startswith(latest_value) or latest_value.startswith(current_value)
 
 
 # ===== Kindle 设置 API =====
@@ -410,11 +429,6 @@ async def update_kindle_settings(
         "enabled": settings.get("enabled", False),
         "smtp_password_configured": bool(settings.get("smtp_password")),
     }
-    if not latest_suffix:
-        return True
-    if not current_suffix:
-        return False
-    return latest_suffix > current_suffix
 
 
 @router.get("/version")
@@ -469,7 +483,7 @@ async def check_update():
         if channel_key == "stable":
             update_available = _is_newer_version(current_version, latest_version)
         else:
-            update_available = current_version != latest_version
+            update_available = not _beta_versions_equal(current_version, latest_version)
 
     return {
         "success": True,
