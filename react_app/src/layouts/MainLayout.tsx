@@ -31,7 +31,7 @@ const MainLayout = () => {
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Top AppBar */}
       <AppBar position="fixed" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider', left: 0, right: 0 }}>
-        <Toolbar disableGutters sx={{ px: { xs: 1.5, sm: 2 }, gap: 1, justifyContent: 'space-between' }}>
+        <Toolbar disableGutters sx={{ pl: { xs: 1.5, sm: 2 }, pr: { xs: 0.75, sm: 1 }, gap: 1, justifyContent: 'space-between' }}>
           <Typography
             variant="h6"
             noWrap
@@ -50,12 +50,12 @@ const MainLayout = () => {
             📚 {serverName}
           </Typography>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+            <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary', p: 0.75 }}>
               <Search />
             </IconButton>
 
-            <IconButton onClick={() => navigate('/profile')}>
+            <IconButton onClick={() => navigate('/profile')} sx={{ p: 0.5 }}>
               <Avatar
                 src={user?.avatarUrl || undefined}
                 sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}

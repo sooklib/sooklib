@@ -18,6 +18,7 @@ from app.core.extractor import Extractor
 from app.core.metadata.epub_parser import EpubParser
 from app.core.metadata.mobi_parser import MobiParser
 from app.core.metadata.txt_parser import TxtParser
+from app.core.metadata.cleaner import clean_author, clean_title
 from app.core.tag_keywords import get_tags_from_filename, get_tags_from_content
 from app.models import Author, Book, BookVersion, Library, LibraryTag, Tag
 from app.utils.file_hash import calculate_file_hash
@@ -209,11 +210,18 @@ class Scanner:
         """
         # 提取元数据
         metadata = self._extract_metadata(file_path)
-        
+
         if not metadata:
             log.warning(f"无法提取元数据: {file_path}")
             stats["skipped"] += 1
             return
+
+        # 统一清洗标题/作者，避免出现作者名带 .txt 等后缀
+        cleaned_title = clean_title(metadata.get("title"))
+        if cleaned_title:
+            metadata["title"] = cleaned_title
+        cleaned_author = clean_author(metadata.get("author"))
+        metadata["author"] = cleaned_author
         
         # TXT 文件：一次性读取内容用于简介和标签提取（内存优化）
         txt_content = None

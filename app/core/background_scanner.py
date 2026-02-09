@@ -18,6 +18,7 @@ from app.core.deduplicator import Deduplicator
 from app.core.metadata.epub_parser import EpubParser
 from app.core.metadata.mobi_parser import MobiParser
 from app.core.metadata.txt_parser import TxtParser
+from app.core.metadata.cleaner import clean_author, clean_title
 from app.utils.file_hash import calculate_file_hash
 from app.utils.logger import log
 from app.core.websocket import manager
@@ -346,12 +347,19 @@ class BackgroundScanner:
         """
         # 提取元数据
         metadata = self._extract_metadata(file_path)
-        
+
         if not metadata:
             task.skipped_books += 1
             if log_detail:
                 log.info(f"扫描跳过: {file_path} | 无法提取元数据")
             return
+
+        # 统一清洗标题/作者，避免出现作者名带 .txt 等后缀
+        cleaned_title = clean_title(metadata.get("title"))
+        if cleaned_title:
+            metadata["title"] = cleaned_title
+        cleaned_author = clean_author(metadata.get("author"))
+        metadata["author"] = cleaned_author
         
         # 去重检测
         action, book_id, reason = await deduplicator.check_duplicate(
