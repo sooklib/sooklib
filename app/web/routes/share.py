@@ -7,15 +7,22 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.config import settings
 from app.database import get_db
-from app.models import Book, Favorite, User
+from app.models import Book, BookVersion, Favorite, User
 from app.security import create_share_token, decode_share_token
 from app.web.routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/share", tags=["share"])
+
+
+def _get_primary_version(book: Book) -> Optional[BookVersion]:
+    if not book.versions:
+        return None
+    primary = next((v for v in book.versions if v.is_primary), None)
+    return primary or book.versions[0]
 
 
 @router.post("/favorites")
@@ -71,7 +78,7 @@ async def get_shared_favorites(
     result = await db.execute(
         select(Favorite, Book)
         .join(Book, Favorite.book_id == Book.id)
-        .options(joinedload(Book.author))
+        .options(joinedload(Book.author), selectinload(Book.versions))
         .where(Favorite.user_id == user.id)
         .order_by(Favorite.created_at.desc())
     )
@@ -80,12 +87,13 @@ async def get_shared_favorites(
 
     items = []
     for favorite, book in favorites:
+        primary_version = _get_primary_version(book)
         items.append({
             "id": favorite.id,
             "book_id": book.id,
             "title": book.title,
             "author_name": book.author.name if book.author else None,
-            "file_format": book.file_format,
+            "file_format": primary_version.file_format if primary_version else None,
             "added_at": favorite.created_at.isoformat() if favorite.created_at else None,
             "cover_url": f"/books/{book.id}/cover"
         })
