@@ -468,7 +468,7 @@ async def list_books(
     # 按格式筛选
     if formats:
         from app.models import BookVersion
-        from sqlalchemy import or_, func
+        from sqlalchemy import or_
         format_list = [f.strip().lower().lstrip('.') for f in formats.split(',') if f.strip()]
         if format_list:
             # 处理带点和不带点的格式（如 txt 和 .txt）
