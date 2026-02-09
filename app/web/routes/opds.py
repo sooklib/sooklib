@@ -39,14 +39,17 @@ async def get_opds_user_optional(
     OPDS 用户认证（可选）- 支持 HTTP Basic Auth
     用于根目录等可以匿名访问的页面
     """
-    if credentials:
-        username = credentials.username
-        password = credentials.password
-        
-        # 查找用户
+    username = credentials.username if credentials else None
+    password = credentials.password if credentials else None
+    if not username:
+        parsed = _parse_basic_auth(request)
+        if parsed:
+            username, password = parsed
+
+    if username and password is not None:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
-        
+
         if user and verify_password(password, user.password_hash):
             return user
     
@@ -63,15 +66,17 @@ async def get_opds_user(
     OPDS 客户端（如古腾堡、Calibre等）使用 Basic Auth 而非 JWT
     用于需要认证才能访问的内容页面
     """
-    # 首先检查是否有 Basic Auth 头
-    if credentials:
-        username = credentials.username
-        password = credentials.password
-        
-        # 查找用户
+    username = credentials.username if credentials else None
+    password = credentials.password if credentials else None
+    if not username:
+        parsed = _parse_basic_auth(request)
+        if parsed:
+            username, password = parsed
+
+    if username and password is not None:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
-        
+
         if user and verify_password(password, user.password_hash):
             return user
     
@@ -79,8 +84,28 @@ async def get_opds_user(
     raise HTTPException(
         status_code=401,
         detail="需要认证",
-        headers={"WWW-Authenticate": 'Basic realm="Sooklib OPDS"'}
+        headers={"WWW-Authenticate": 'Basic realm="Sooklib OPDS", charset="UTF-8"'}
     )
+
+
+def _parse_basic_auth(request: Request) -> Optional[tuple[str, str]]:
+    auth_header = request.headers.get("Authorization") or ""
+    if not auth_header.lower().startswith("basic "):
+        return None
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        decoded = base64.b64decode(token).decode("utf-8")
+    except Exception:
+        try:
+            decoded = base64.b64decode(token).decode("latin1")
+        except Exception:
+            return None
+    if ":" not in decoded:
+        return None
+    username, password = decoded.split(":", 1)
+    return username, password
 
 
 def get_base_url(request: Request) -> str:
