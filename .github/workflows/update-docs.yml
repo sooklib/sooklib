@@ -24,7 +24,7 @@ jobs:
       - name: 同步 update.json 到文档仓库
         env:
           DOCS_PUSH_TOKEN: ${{ secrets.DOCS_PUSH_TOKEN }}
-          DOCS_REPO: Haruka041/sooklib-docs
+          DOCS_REPO: sooklib/sooklib-docs
           DOCS_BRANCH: main
         run: |
           set -e
