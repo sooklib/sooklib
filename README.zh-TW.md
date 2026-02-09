@@ -7,7 +7,7 @@
 **語言 / Languages**：
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md) | [Русский](README.ru.md) | [한국어](README.ko.md)
 
-Sooklib 是以書庫為核心、對標 Emby 的書城／書庫專案。  
+Sooklib 是以書庫為核心的自託管書城／書庫專案，強調管理、發現與持續閱讀體驗。  
 線上閱讀僅支援 **TXT**，其餘格式僅提供下載。
 
 ## 專案定位

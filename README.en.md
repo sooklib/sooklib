@@ -7,7 +7,7 @@
 **Languages**:
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md) | [Русский](README.ru.md) | [한국어](README.ko.md)
 
-Sooklib is a library-first system inspired by Emby.  
+Sooklib is a library-first self-hosted system focused on management, discovery, and continuous reading.  
 Online reading supports **TXT only** with deep optimizations; other formats are download-only.
 
 ## Positioning

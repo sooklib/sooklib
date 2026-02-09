@@ -7,7 +7,7 @@
 **Languages**：
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md) | [Русский](README.ru.md) | [한국어](README.ko.md)
 
-Sooklib は書庫を中心とした Emby 風の書城／書庫プロジェクトです。  
+Sooklib は書庫を中心としたセルフホスト型の書城／書庫プロジェクトで、管理・発見・継続読書体験を重視します。  
 オンライン閲覧は **TXT のみ**対応し、その他の形式はダウンロード専用です。
 
 ## 位置づけ

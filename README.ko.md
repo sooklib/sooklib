@@ -7,7 +7,7 @@
 **Languages**:
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md) | [Русский](README.ru.md) | [한국어](README.ko.md)
 
-Sooklib은 Emby 스타일의 **서재 중심** 프로젝트입니다.  
+Sooklib은 서재 중심의 셀프호스팅 서재/서점 프로젝트로, 관리·탐색·지속적인 독서 경험을 강조합니다.  
 온라인 읽기는 **TXT만** 지원하며, 다른 형식은 다운로드 전용입니다.
 
 ## 포지셔닝
