@@ -30,8 +30,8 @@ const MainLayout = () => {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Top AppBar */}
-      <AppBar position="fixed" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
-        <Toolbar>
+      <AppBar position="fixed" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider', left: 0, right: 0 }}>
+        <Toolbar disableGutters sx={{ px: { xs: 1.5, sm: 2 }, gap: 1 }}>
           <Typography
             variant="h6"
             noWrap
@@ -47,19 +47,21 @@ const MainLayout = () => {
           >
             📚 {serverName}
           </Typography>
-          
-          <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary' }}>
-            <Search />
-          </IconButton>
-          
-          <IconButton onClick={() => navigate('/profile')}>
-            <Avatar
-              src={user?.avatarUrl || undefined}
-              sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
-            >
-              {(user?.displayName || user?.username || 'U').charAt(0).toUpperCase()}
-            </Avatar>
-          </IconButton>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto' }}>
+            <IconButton onClick={() => navigate('/search')} sx={{ color: 'text.primary' }}>
+              <Search />
+            </IconButton>
+
+            <IconButton onClick={() => navigate('/profile')}>
+              <Avatar
+                src={user?.avatarUrl || undefined}
+                sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
+              >
+                {(user?.displayName || user?.username || 'U').charAt(0).toUpperCase()}
+              </Avatar>
+            </IconButton>
+          </Box>
         </Toolbar>
       </AppBar>
 
