@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import yaml
 
 from app.database import get_db
-from app.models import FilenamePattern, Library, LibraryPermission, LibraryTag, Book, User, BookTag, Tag, BookVersion
+from app.models import FilenamePattern, Library, LibraryPermission, LibraryTag, Book, User, BookTag, Tag, BookVersion, Author
 from app.config import settings
 from app.core.ai import ai_config, get_ai_service
 from app.core.metadata.txt_parser import TxtParser
@@ -2048,7 +2048,9 @@ async def batch_tag_books(
     try:
         # 获取所有书籍
         result = await db.execute(
-            select(Book).where(Book.id.in_(request.book_ids))
+            select(Book)
+            .options(selectinload(Book.book_tags).selectinload(BookTag.tag))
+            .where(Book.id.in_(request.book_ids))
         )
         books = result.scalars().all()
         
@@ -2139,6 +2141,9 @@ async def auto_tag_books(
     
     from app.models import Tag
     
+    # 避免批量提交导致对象过期而触发异步懒加载
+    original_expire_on_commit = db.expire_on_commit
+    db.expire_on_commit = False
     try:
         # 构建查询 - 预加载book_tags关系（不是tags，因为tags是association_proxy）
         query = select(Book).options(
@@ -2268,6 +2273,8 @@ async def auto_tag_books(
         await db.rollback()
         log.error(f"自动打标签失败: {e}")
         raise HTTPException(status_code=500, detail=f"自动打标签失败: {str(e)}")
+    finally:
+        db.expire_on_commit = original_expire_on_commit
 
 
 # ==================== 书籍组（Emby风格合并）API ====================
@@ -2641,38 +2648,44 @@ async def auto_tag_single_book(
     from app.core.tag_keywords import get_tags_from_filename, get_tags_from_content
     from app.models import Tag, BookVersion
     from pathlib import Path
+    from sqlalchemy.orm import selectinload
     
     try:
-        # 获取书籍
-        result = await db.execute(
-            select(Book).where(Book.id == book_id)
+        # 获取书籍基础信息（避免懒加载）
+        book_row = await db.execute(
+            select(Book.id, Book.title, Author.name)
+            .select_from(Book)
+            .outerjoin(Author, Book.author_id == Author.id)
+            .where(Book.id == book_id)
         )
-        book = result.scalar_one_or_none()
-        
-        if not book:
+        row = book_row.first()
+
+        if not row:
             raise HTTPException(status_code=404, detail="书籍不存在")
-        
+
+        book_id_value, book_title, author_name = row
+
         auto_tags = []
-        
+
         # 从书名提取
-        if book.title:
-            auto_tags.extend(get_tags_from_filename(book.title))
-        
+        if book_title:
+            auto_tags.extend(get_tags_from_filename(book_title))
+
         # 从作者提取
-        if book.author:
-            auto_tags.extend(get_tags_from_filename(book.author.name))
-        
+        if author_name:
+            auto_tags.extend(get_tags_from_filename(author_name))
+
         # 从主版本文件名提取
         version_result = await db.execute(
             select(BookVersion)
-            .where(BookVersion.book_id == book.id)
+            .where(BookVersion.book_id == book_id_value)
             .where(BookVersion.is_primary == True)
         )
         primary_version = version_result.scalar_one_or_none()
-        
+
         if primary_version:
             auto_tags.extend(get_tags_from_filename(primary_version.file_name))
-            
+
             # 从TXT内容提取
             if primary_version.file_format == '.txt':
                 try:
@@ -2683,21 +2696,27 @@ async def auto_tag_single_book(
                             auto_tags.extend(get_tags_from_content(content))
                 except Exception as e:
                     log.error(f"读取文件内容失败: {primary_version.file_path}, 错误: {e}")
-        
+
         # 去重
         auto_tags = list(set(auto_tags))
-        
+
         if not auto_tags:
             return {
                 "message": "未提取到标签",
                 "book_id": book_id,
                 "tags": []
             }
-        
-        # 获取或创建标签
-        existing_tag_names = {t.name for t in book.tags}
+
+        # 查询已存在的标签名（避免关系懒加载）
+        existing_tag_result = await db.execute(
+            select(Tag.name)
+            .select_from(BookTag)
+            .join(Tag, BookTag.tag_id == Tag.id)
+            .where(BookTag.book_id == book_id_value)
+        )
+        existing_tag_names = set(existing_tag_result.scalars().all())
         new_tags = []
-        
+
         for tag_name in auto_tags:
             if tag_name not in existing_tag_names:
                 # 获取或创建标签
@@ -2705,27 +2724,29 @@ async def auto_tag_single_book(
                     select(Tag).where(Tag.name == tag_name)
                 )
                 tag = tag_result.scalar_one_or_none()
-                
+
                 if not tag:
                     tag = Tag(name=tag_name, type="custom")
                     db.add(tag)
                     await db.flush()
-                
-                book.tags.append(tag)
+
+                db.add(BookTag(book_id=book_id_value, tag_id=tag.id))
                 new_tags.append(tag_name)
-        
+                existing_tag_names.add(tag_name)
+
         await db.commit()
-        
+
+        safe_title = book_title or f"#{book_id_value}"
         log.info(
-            f"管理员 {current_user.username} 为书籍 {book.title} 自动添加标签: {new_tags}"
+            f"管理员 {current_user.username} 为书籍 {safe_title} 自动添加标签: {new_tags}"
         )
-        
+
         return {
             "message": f"已添加 {len(new_tags)} 个标签",
             "book_id": book_id,
-            "book_title": book.title,
+            "book_title": book_title,
             "new_tags": new_tags,
-            "total_tags": len(book.tags)
+            "total_tags": len(existing_tag_names)
         }
         
     except HTTPException:

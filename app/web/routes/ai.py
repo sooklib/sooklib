@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.database import get_db
 from app.models import Book, Library, FilenamePattern, Tag, User
@@ -1049,6 +1049,7 @@ async def ai_extract_library_metadata(
     from app.models import BookVersion
     query = (
         select(Book)
+        .options(selectinload(Book.author))
         .where(Book.library_id == library_id)
         .limit(ai_config.provider.sample_size or 50)
     )
@@ -1347,7 +1348,11 @@ async def pattern_extract_library_metadata(
     
     # 获取书库中的书籍
     from app.models import BookVersion
-    query = select(Book).where(Book.library_id == library_id)
+    query = (
+        select(Book)
+        .options(selectinload(Book.author))
+        .where(Book.library_id == library_id)
+    )
     result = await db.execute(query)
     books = result.scalars().all()
     
@@ -1491,7 +1496,11 @@ async def apply_all_patterns_to_library(
         return {"success": False, "error": "没有可用的文件名规则"}
     
     # 获取书库中的书籍
-    query = select(Book).where(Book.library_id == library_id)
+    query = (
+        select(Book)
+        .options(selectinload(Book.author))
+        .where(Book.library_id == library_id)
+    )
     result = await db.execute(query)
     books = result.scalars().all()
     

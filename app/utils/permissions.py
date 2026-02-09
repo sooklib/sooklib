@@ -7,6 +7,7 @@ from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import Book, Library, LibraryPermission, User
 
@@ -69,8 +70,13 @@ async def check_book_access(
     Returns:
         bool: 是否有权限访问
     """
-    # 获取书籍所属书库
-    book = await db.get(Book, book_id)
+    # 获取书籍所属书库（避免延迟加载 book_tags 引发 greenlet_spawn）
+    result = await db.execute(
+        select(Book)
+        .options(selectinload(Book.book_tags))
+        .where(Book.id == book_id)
+    )
+    book = result.scalar_one_or_none()
     if not book:
         return False
     

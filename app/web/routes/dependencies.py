@@ -3,11 +3,13 @@ API 依赖注入
 提供常用的依赖注入函数
 """
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import Book, Library, User
-from app.utils.permissions import check_book_access, check_library_access
+from app.utils.permissions import check_content_rating, check_library_access
 from app.web.routes.auth import get_current_user
 
 
@@ -30,14 +32,29 @@ async def get_accessible_book(
     Raises:
         HTTPException: 书籍不存在或无权访问
     """
-    book = await db.get(Book, book_id)
+    result = await db.execute(
+        select(Book)
+        .options(
+            selectinload(Book.author),
+            selectinload(Book.versions),
+            selectinload(Book.book_tags),
+        )
+        .where(Book.id == book_id)
+    )
+    book = result.scalar_one_or_none()
     if not book:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="书籍不存在"
         )
     
-    if not await check_book_access(current_user, book_id, db):
+    if not await check_library_access(current_user, book.library_id, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此书籍"
+        )
+
+    if not await check_content_rating(current_user, book, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权访问此书籍"
