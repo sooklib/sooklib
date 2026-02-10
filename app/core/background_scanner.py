@@ -9,6 +9,7 @@ from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import settings
@@ -551,19 +552,30 @@ class BackgroundScanner:
         Returns:
             是否成功取消
         """
-        async with self.get_session() as db:
-            task = await db.get(ScanTask, task_id)
-            
-            if not task:
-                return False
-            
-            if task.status == 'running':
-                task.status = 'cancelled'
-                task.completed_at = datetime.utcnow()
-                await db.commit()
-                return True
-            
-            return False
+        retry_delays = [0.1, 0.3, 0.6]
+        for attempt, delay in enumerate(retry_delays, start=1):
+            async with self.async_session_maker() as db:
+                try:
+                    task = await db.get(ScanTask, task_id)
+                    if not task:
+                        return False
+                    if task.status != 'running':
+                        return False
+
+                    task.status = 'cancelled'
+                    task.completed_at = datetime.utcnow()
+                    await db.commit()
+                    return True
+                except OperationalError as e:
+                    await db.rollback()
+                    if "database is locked" in str(e).lower() and attempt < len(retry_delays):
+                        await asyncio.sleep(delay)
+                        continue
+                    raise
+                except Exception:
+                    await db.rollback()
+                    raise
+        return False
 
 
 # 全局单例

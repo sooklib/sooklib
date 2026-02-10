@@ -879,7 +879,11 @@ def _build_txt_cache_streaming(
 
 
 async def _ensure_txt_cache(file_path: Path) -> Optional[dict]:
-    text_path, index_path, fail_marker, _cache_key = _get_txt_cache_paths(file_path)
+    try:
+        text_path, index_path, fail_marker, _cache_key = _get_txt_cache_paths(file_path)
+    except (FileNotFoundError, OSError) as e:
+        log.warning(f"TXT缓存初始化失败，文件不可访问: {file_path}, 错误: {e}")
+        raise HTTPException(status_code=404, detail="书籍文件不存在或无法访问")
 
     if text_path.exists() and index_path.exists():
         index = _load_txt_index(index_path)

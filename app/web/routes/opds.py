@@ -24,7 +24,7 @@ from app.utils.opds_builder import (
     build_opds_root,
     build_opds_search_descriptor,
 )
-from app.utils.permissions import check_book_access, get_accessible_library_ids
+from app.utils.permissions import check_book_access, check_content_rating, get_accessible_library_ids
 
 router = APIRouter()
 security = HTTPBasic(auto_error=False)
@@ -189,23 +189,33 @@ async def opds_recent_books(
     )
     query = query.where(Book.library_id.in_(accessible_library_ids))
     query = query.order_by(Book.added_at.desc())
-    
-    # 获取所有符合条件的书籍
-    result = await db.execute(query)
-    all_books = result.unique().scalars().all()
-    
-    # 应用内容分级过滤
-    filtered_books = []
-    for book in all_books:
-        if await check_book_access(current_user, book.id, db):
-            filtered_books.append(book)
-    
-    # 计算分页
-    total_books = len(filtered_books)
-    total_pages = math.ceil(total_books / limit) if total_books > 0 else 1
-    start_idx = (page - 1) * limit
-    end_idx = start_idx + limit
-    paginated_books = filtered_books[start_idx:end_idx]
+
+    if current_user.is_admin:
+        count_result = await db.execute(
+            select(func.count(Book.id)).where(Book.library_id.in_(accessible_library_ids))
+        )
+        total_books = count_result.scalar() or 0
+        total_pages = math.ceil(total_books / limit) if total_books > 0 else 1
+        offset = (page - 1) * limit
+        result = await db.execute(query.offset(offset).limit(limit))
+        paginated_books = result.unique().scalars().all()
+    else:
+        # 获取所有符合条件的书籍
+        result = await db.execute(query)
+        all_books = result.unique().scalars().all()
+
+        # 应用内容分级过滤（避免逐本 DB 查询）
+        filtered_books = []
+        for book in all_books:
+            if await check_content_rating(current_user, book, db):
+                filtered_books.append(book)
+
+        # 计算分页
+        total_books = len(filtered_books)
+        total_pages = math.ceil(total_books / limit) if total_books > 0 else 1
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paginated_books = filtered_books[start_idx:end_idx]
     
     # 构建 Feed
     self_link = f"{base_url}/opds/recent?page={page}&limit={limit}"

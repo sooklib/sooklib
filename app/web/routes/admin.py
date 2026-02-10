@@ -1309,22 +1309,40 @@ async def refresh_book_cover(
     from app.core.metadata.epub_parser import EpubParser
     from app.core.metadata.mobi_parser import MobiParser
     
-    # 获取书籍
+    from sqlalchemy.orm import selectinload
+
+    # 获取书籍（带版本）
     result = await db.execute(
-        select(Book).where(Book.id == book_id)
+        select(Book).options(selectinload(Book.versions)).where(Book.id == book_id)
     )
     book = result.scalar_one_or_none()
     
     if not book:
         raise HTTPException(status_code=404, detail="书籍不存在")
     
-    file_path = Path(book.file_path)
-    if not file_path.exists():
+    if not book.versions:
+        raise HTTPException(status_code=404, detail="书籍没有可用的文件版本")
+
+    primary = next((v for v in book.versions if v.is_primary), None)
+    version = None
+    if primary and Path(primary.file_path).exists():
+        version = primary
+    else:
+        for candidate in book.versions:
+            if candidate == primary:
+                continue
+            if Path(candidate.file_path).exists():
+                version = candidate
+                break
+
+    if not version:
         raise HTTPException(status_code=404, detail="书籍文件不存在")
+
+    file_path = Path(version.file_path)
     
     # 根据格式提取封面
     cover_path = None
-    file_format = book.file_format.lower()
+    file_format = version.file_format.lower()
     
     try:
         if file_format == '.epub':
@@ -1356,6 +1374,8 @@ async def refresh_book_cover(
         else:
             return {"message": "未找到封面", "cover_path": None}
             
+    except HTTPException:
+        raise
     except Exception as e:
         log.error(f"重新提取封面失败: {book_id}, 错误: {e}")
         raise HTTPException(status_code=500, detail=f"提取封面失败: {str(e)}")
