@@ -21,6 +21,7 @@ from app.utils.logger import log
 from app.utils.opds_builder import (
     build_opds_acquisition_feed,
     build_opds_navigation_feed,
+    build_download_filename,
     build_opds_root,
     build_opds_search_descriptor,
 )
@@ -598,8 +599,10 @@ async def opds_library_books(
 
 
 @router.get("/download/{book_id}")
+@router.get("/download/{book_id}/{filename}")
 async def opds_download_book(
     book_id: int,
+    filename: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_opds_user)
 ):
@@ -649,11 +652,12 @@ async def opds_download_book(
         }
         mime_type = mime_types.get(primary.file_format.lower(), 'application/octet-stream')
 
-        filename = primary.file_name or f"{book.title}.{primary.file_format}"
+        download_filename = build_download_filename(book, primary)
+        _ = filename
         return FileResponse(
             primary.file_path,
             media_type=mime_type,
-            filename=filename
+            filename=download_filename
         )
     except Exception as e:
         log.error(f"下载书籍失败: {e}")

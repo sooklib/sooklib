@@ -3,6 +3,7 @@ OPDS Feed 生成器
 用于构建符合 OPDS 1.2 规范的 Atom Feed
 """
 from datetime import datetime
+from pathlib import Path
 import re
 from typing import List, Optional
 from urllib.parse import quote
@@ -14,6 +15,7 @@ from app.utils.logger import log
 _INVALID_XML_CHARS = re.compile(
     r"[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]"
 )
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
 
 
 def _sanitize_xml_text(value: str) -> str:
@@ -36,6 +38,41 @@ def escape_xml(text: str) -> str:
             .replace(">", "&gt;")
             .replace('"', "&quot;")
             .replace("'", "&apos;"))
+
+
+def _sanitize_filename(value: str) -> str:
+    if not value:
+        return ""
+    sanitized = value.replace("\0", "").strip()
+    sanitized = _INVALID_FILENAME_CHARS.sub("_", sanitized)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    return sanitized
+
+
+def _normalize_format(value: Optional[str]) -> str:
+    return str(value or "").lower().lstrip(".")
+
+
+def build_download_filename(book: Book, primary_version: Optional[BookVersion]) -> str:
+    file_format = _normalize_format(
+        primary_version.file_format if primary_version else ""
+    )
+    raw_name = primary_version.file_name if primary_version and primary_version.file_name else None
+    fallback_title = book.title or f"book-{getattr(book, 'id', 'download')}"
+    fallback = f"{fallback_title}.{file_format}" if file_format else fallback_title
+
+    filename = _sanitize_filename(raw_name or fallback)
+    if file_format:
+        suffix = Path(filename).suffix.lower().lstrip(".")
+        if not suffix:
+            filename = f"{filename}.{file_format}"
+
+    if not filename:
+        filename = f"book-{getattr(book, 'id', 'download')}"
+        if file_format:
+            filename = f"{filename}.{file_format}"
+
+    return filename
 
 
 def format_datetime(dt: Optional[datetime]) -> str:
@@ -134,8 +171,9 @@ def build_opds_entry(book: Book, base_url: str, author_name: Optional[str] = Non
     updated = format_datetime(book.added_at)
     
     primary_version = get_primary_version(book)
-    file_format = (primary_version.file_format if primary_version and primary_version.file_format else "unknown")
-    file_format = str(file_format).lower()
+    file_format = _normalize_format(
+        primary_version.file_format if primary_version and primary_version.file_format else "unknown"
+    )
     file_size = primary_version.file_size if primary_version and primary_version.file_size else 0
 
     # 确定 MIME 类型
@@ -152,7 +190,8 @@ def build_opds_entry(book: Book, base_url: str, author_name: Optional[str] = Non
     mime_type = mime_types.get(file_format, 'application/octet-stream')
     
     # 构建下载链接
-    download_link = f"{base_url}/opds/download/{book.id}"
+    download_filename = build_download_filename(book, primary_version)
+    download_link = f"{base_url}/opds/download/{book.id}/{quote(download_filename)}"
     cover_link = f"{base_url}/api/books/{book.id}/cover"
     
     # 格式化文件大小
