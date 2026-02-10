@@ -16,6 +16,7 @@ _INVALID_XML_CHARS = re.compile(
     r"[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]"
 )
 _INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
+_INVALID_ASCII_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _sanitize_xml_text(value: str) -> str:
@@ -49,6 +50,15 @@ def _sanitize_filename(value: str) -> str:
     return sanitized
 
 
+def _sanitize_ascii_filename(value: str) -> str:
+    if not value:
+        return ""
+    sanitized = value.replace("\0", "").strip()
+    sanitized = _INVALID_ASCII_FILENAME_CHARS.sub("_", sanitized)
+    sanitized = sanitized.strip("._-")
+    return sanitized
+
+
 def _normalize_format(value: Optional[str]) -> str:
     return str(value or "").lower().lstrip(".")
 
@@ -73,6 +83,22 @@ def build_download_filename(book: Book, primary_version: Optional[BookVersion]) 
             filename = f"{filename}.{file_format}"
 
     return filename
+
+
+def build_ascii_filename(filename: str, fallback_stem: str, file_format: Optional[str]) -> str:
+    stem = Path(filename).stem or fallback_stem
+    ext = Path(filename).suffix.lower().lstrip(".") or _normalize_format(file_format)
+
+    ascii_stem = _sanitize_ascii_filename(stem) or fallback_stem
+    if ext:
+        return f"{ascii_stem}.{ext}"
+    return ascii_stem
+
+
+def build_content_disposition(filename: str, ascii_fallback: str) -> str:
+    safe_ascii = _sanitize_ascii_filename(ascii_fallback) or "download"
+    encoded = quote(filename)
+    return f'attachment; filename=\"{safe_ascii}\"; filename*=UTF-8\'\'{encoded}'
 
 
 def format_datetime(dt: Optional[datetime]) -> str:

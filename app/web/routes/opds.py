@@ -21,6 +21,8 @@ from app.utils.logger import log
 from app.utils.opds_builder import (
     build_opds_acquisition_feed,
     build_opds_navigation_feed,
+    build_ascii_filename,
+    build_content_disposition,
     build_download_filename,
     build_opds_root,
     build_opds_search_descriptor,
@@ -653,11 +655,17 @@ async def opds_download_book(
         mime_type = mime_types.get(primary.file_format.lower(), 'application/octet-stream')
 
         download_filename = build_download_filename(book, primary)
+        ascii_filename = build_ascii_filename(
+            download_filename,
+            fallback_stem=f"book-{book.id}",
+            file_format=primary.file_format if primary else None,
+        )
+        content_disposition = build_content_disposition(download_filename, ascii_filename)
         _ = filename
         return FileResponse(
             primary.file_path,
             media_type=mime_type,
-            filename=download_filename
+            headers={"Content-Disposition": content_disposition}
         )
     except Exception as e:
         log.error(f"下载书籍失败: {e}")
