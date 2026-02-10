@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/authStore'
 import api from '../services/api'
 import { extractDominantColor } from '../utils/colorUtils'
 import PageContainer from '../components/PageContainer'
+import { copyToClipboard } from '../utils/clipboard'
 
 export default function UserSettingsPage() {
   const { i18n, t } = useTranslation()
@@ -107,11 +108,14 @@ export default function UserSettingsPage() {
     }
   }
 
-  const handleCopyBindCode = () => {
-    if (bindCode) {
-      navigator.clipboard.writeText(`/bind ${bindCode}`)
+  const handleCopyBindCode = async () => {
+    if (!bindCode) return
+    const ok = await copyToClipboard(`/bind ${bindCode}`)
+    if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    } else {
+      setSnackbar({ open: true, message: '复制失败，请手动复制', severity: 'error' })
     }
   }
 

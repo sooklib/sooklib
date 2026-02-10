@@ -19,6 +19,7 @@ import { Favorite as FavoriteIcon, Share as ShareIcon, ContentCopy as CopyIcon }
 import api from '../services/api';
 import BookCard from '../components/BookCard';
 import PageContainer from '../components/PageContainer';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface FavoriteItem {
   id: number;
@@ -77,11 +78,10 @@ export default function FavoritesPage() {
   };
 
   const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(shareLink);
+    const ok = await copyToClipboard(shareLink);
+    if (ok) {
       setSnackbar({ open: true, message: '已复制分享链接' });
-    } catch (err) {
-      console.error('复制失败:', err);
+    } else {
       setSnackbar({ open: true, message: '复制失败，请手动复制' });
     }
   };
