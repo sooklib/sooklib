@@ -4,8 +4,10 @@ OPDS 路由
 支持 HTTP Basic Auth 认证（OPDS 阅读器标准）
 """
 import math
+import os
 from typing import Optional
 import base64
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request, Response, HTTPException, Header
 from fastapi.responses import FileResponse
@@ -31,6 +33,11 @@ from app.utils.permissions import check_book_access, check_content_rating, get_a
 
 router = APIRouter()
 security = HTTPBasic(auto_error=False)
+
+
+def _build_search_self_link(base_url: str, query: str, page: int, limit: int) -> str:
+    encoded = quote(query or "")
+    return f"{base_url}/opds/search?q={encoded}&page={page}&limit={limit}"
 
 
 async def get_opds_user_optional(
@@ -115,6 +122,65 @@ def get_base_url(request: Request) -> str:
     """获取应用的基础 URL"""
     # 从请求中获取协议和主机
     return f"{request.url.scheme}://{request.url.netloc}"
+
+
+async def resolve_download_context(
+    book_id: int,
+    db: AsyncSession,
+    current_user: User
+) -> dict:
+    result = await db.execute(
+        select(Book)
+        .options(joinedload(Book.versions))
+        .where(Book.id == book_id)
+    )
+    book = result.unique().scalar_one_or_none()
+
+    if not book:
+        raise HTTPException(status_code=404, detail="书籍不存在")
+
+    has_access = await check_book_access(current_user, book_id, db)
+    if not has_access:
+        raise HTTPException(status_code=403, detail="无权访问此书籍")
+
+    if not book.versions:
+        raise HTTPException(status_code=404, detail="书籍版本不存在")
+
+    primary = next((v for v in book.versions if v.is_primary), None)
+    if not primary:
+        primary = book.versions[0]
+
+    if not os.path.exists(primary.file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    mime_types = {
+        'epub': 'application/epub+zip',
+        'mobi': 'application/x-mobipocket-ebook',
+        'azw': 'application/vnd.amazon.ebook',
+        'azw3': 'application/vnd.amazon.ebook',
+        'pdf': 'application/pdf',
+        'txt': 'text/plain; charset=utf-8',
+        'cbz': 'application/vnd.comicbook+zip',
+        'cbr': 'application/vnd.comicbook-rar',
+    }
+    mime_type = mime_types.get(primary.file_format.lower(), 'application/octet-stream')
+
+    download_filename = build_download_filename(book, primary)
+    ascii_filename = build_ascii_filename(
+        download_filename,
+        fallback_stem=f"book-{book.id}",
+        file_format=primary.file_format if primary else None,
+    )
+    content_disposition = build_content_disposition(download_filename, ascii_filename)
+
+    return {
+        "file_path": primary.file_path,
+        "mime_type": mime_type,
+        "download_filename": download_filename,
+        "ascii_filename": ascii_filename,
+        "content_disposition": content_disposition,
+        "file_size": primary.file_size,
+    }
 
 
 @router.get("")
@@ -466,7 +532,7 @@ async def opds_search(
     paginated_books = filtered_books[start_idx:end_idx]
     
     # 构建 Feed
-    self_link = f"{base_url}/opds/search?q={q}&page={page}&limit={limit}"
+    self_link = _build_search_self_link(base_url, q, page, limit)
     xml = build_opds_acquisition_feed(
         books=paginated_books,
         title=f"搜索: {q}",
@@ -600,6 +666,29 @@ async def opds_library_books(
     )
 
 
+@router.head("/download/{book_id}")
+@router.head("/download/{book_id}/{filename}")
+async def opds_download_book_head(
+    book_id: int,
+    filename: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_opds_user)
+):
+    """
+    下载书籍（仅返回 Header，用于 OPDS 客户端探测文件名）
+    """
+    context = await resolve_download_context(book_id, db, current_user)
+    _ = filename
+    return Response(
+        status_code=200,
+        media_type=context["mime_type"],
+        headers={
+            "Content-Disposition": context["content_disposition"],
+            "Content-Length": str(context["file_size"]),
+        },
+    )
+
+
 @router.get("/download/{book_id}")
 @router.get("/download/{book_id}/{filename}")
 async def opds_download_book(
@@ -612,61 +701,16 @@ async def opds_download_book(
     下载书籍
     验证权限后提供书籍文件下载
     """
-    # 检查书籍是否存在
-    result = await db.execute(
-        select(Book)
-        .options(joinedload(Book.versions))
-        .where(Book.id == book_id)
-    )
-    book = result.unique().scalar_one_or_none()
-    
-    if not book:
-        return Response(content="书籍不存在", status_code=404)
-    
-    # 检查访问权限
-    has_access = await check_book_access(current_user, book_id, db)
-    if not has_access:
-        return Response(content="无权访问此书籍", status_code=403)
-    
-    # 读取主版本文件
     try:
-        import os
-        if not book.versions:
-            return Response(content="书籍版本不存在", status_code=404)
-
-        primary = next((v for v in book.versions if v.is_primary), None)
-        if not primary:
-            primary = book.versions[0]
-
-        if not os.path.exists(primary.file_path):
-            return Response(content="文件不存在", status_code=404)
-
-        # 确定 MIME 类型
-        mime_types = {
-            'epub': 'application/epub+zip',
-            'mobi': 'application/x-mobipocket-ebook',
-            'azw': 'application/vnd.amazon.ebook',
-            'azw3': 'application/vnd.amazon.ebook',
-            'pdf': 'application/pdf',
-            'txt': 'text/plain; charset=utf-8',
-            'cbz': 'application/vnd.comicbook+zip',
-            'cbr': 'application/vnd.comicbook-rar',
-        }
-        mime_type = mime_types.get(primary.file_format.lower(), 'application/octet-stream')
-
-        download_filename = build_download_filename(book, primary)
-        ascii_filename = build_ascii_filename(
-            download_filename,
-            fallback_stem=f"book-{book.id}",
-            file_format=primary.file_format if primary else None,
-        )
-        content_disposition = build_content_disposition(download_filename, ascii_filename)
+        context = await resolve_download_context(book_id, db, current_user)
         _ = filename
         return FileResponse(
-            primary.file_path,
-            media_type=mime_type,
-            headers={"Content-Disposition": content_disposition}
+            context["file_path"],
+            media_type=context["mime_type"],
+            headers={"Content-Disposition": context["content_disposition"]}
         )
+    except HTTPException as exc:
+        return Response(content=exc.detail, status_code=exc.status_code)
     except Exception as e:
         log.error(f"下载书籍失败: {e}")
         return Response(content=f"下载失败: {str(e)}", status_code=500)
